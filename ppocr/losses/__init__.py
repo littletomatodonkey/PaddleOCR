@@ -25,14 +25,14 @@ def build_loss(config):
     from .rec_ctc_loss import CTCLoss
 
     # distillation loss
-    from .distillation_loss import DistillationLoss
+    from .distillation_loss import DistillationLoss, SelfDistillationLoss, TDecodeCTCLoss
 
     # cls loss
     from .cls_loss import ClsLoss
 
     support_dict = [
         'DBLoss', 'EASTLoss', 'SASTLoss', 'CTCLoss', 'ClsLoss',
-        "DistillationLoss"
+        "DistillationLoss", "SelfDistillationLoss", "TDecodeCTCLoss"
     ]
 
     config = copy.deepcopy(config)
