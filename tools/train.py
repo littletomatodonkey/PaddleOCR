@@ -76,11 +76,19 @@ def main(config, device, logger, vdl_writer):
     loss_class = build_loss(config['Loss'])
 
     # build optim
+    use_distillation = config['Architecture'].get("use_distillation", False)
+    freeze_teacher = config['Architecture'].get("freeze_teacher", True)
+    if use_distillation and freeze_teacher:
+        model_to_be_opt = model.student if hasattr(
+            model, "student") else model._layers.student
+    else:
+        model_to_be_opt = model
+
     optimizer, lr_scheduler = build_optimizer(
         config['Optimizer'],
         epochs=config['Global']['epoch_num'],
         step_each_epoch=len(train_dataloader),
-        parameters=model.parameters())
+        parameters=model_to_be_opt.parameters())
 
     # build metric
     eval_class = build_metric(config['Metric'])

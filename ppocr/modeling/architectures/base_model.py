@@ -68,11 +68,19 @@ class BaseModel(nn.Layer):
         config["Head"]['in_channels'] = in_channels
         self.head = build_head(config["Head"])
 
-    def forward(self, x):
+    def forward(self, x, fetch_all_feats=False):
+        out_dict = {}
         if self.use_transform:
             x = self.transform(x)
+            out_dict["transform_out"] = x
         x = self.backbone(x)
+        out_dict["backbone_out"] = x
         if self.use_neck:
             x = self.neck(x)
+            out_dict["neck_out"] = x
         x = self.head(x)
-        return x
+        out_dict["head_out"] = x
+        if fetch_all_feats:
+            return out_dict
+        else:
+            return x

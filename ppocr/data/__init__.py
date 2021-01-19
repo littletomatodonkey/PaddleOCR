@@ -34,6 +34,7 @@ import paddle.distributed as dist
 from ppocr.data.imaug import transform, create_operators
 from ppocr.data.simple_dataset import SimpleDataSet
 from ppocr.data.lmdb_dataset import LMDBDateSet
+from ppocr.data.batch_sampler import SelfDistributedBatchSampler
 
 __all__ = ['build_dataloader', 'transform', 'create_operators']
 
@@ -66,15 +67,22 @@ def build_dataloader(config, mode, device, logger):
     batch_size = loader_config['batch_size_per_card']
     drop_last = loader_config['drop_last']
     num_workers = loader_config['num_workers']
+    num_sections = loader_config.get('num_sections', 1)
+
+    logger.info(
+        "num_sections is set as {}, then if you set batch size as {}, the actual batch size is {} as the data will be repeated for {} times".
+        format(num_sections, batch_size, batch_size * num_sections,
+               num_sections))
 
     use_shared_memory = False
     if mode == "Train":
         #Distribute data to multiple cards
-        batch_sampler = DistributedBatchSampler(
+        batch_sampler = SelfDistributedBatchSampler(
             dataset=dataset,
             batch_size=batch_size,
             shuffle=False,
-            drop_last=drop_last)
+            drop_last=drop_last,
+            num_sections=num_sections)
         use_shared_memory = True
     else:
         #Distribute data to single card

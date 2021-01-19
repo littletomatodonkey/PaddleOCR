@@ -21,16 +21,24 @@ from paddle import nn
 
 
 class CTCLoss(nn.Layer):
-    def __init__(self, **kwargs):
+    def __init__(self, reduction="mean", **kwargs):
         super(CTCLoss, self).__init__()
         self.loss_func = nn.CTCLoss(blank=0, reduction='none')
+        self.reduction = reduction
+        assert reduction in ["mean", "sum", "none"
+                             ], "reduction({}) format wrong!".format(reduction)
 
     def __call__(self, predicts, batch):
+        if isinstance(predicts, dict):
+            predicts = predicts["head_out"]
         predicts = predicts.transpose((1, 0, 2))
         N, B, _ = predicts.shape
         preds_lengths = paddle.to_tensor([N] * B, dtype='int64')
         labels = batch[1].astype("int32")
         label_lengths = batch[2].astype('int64')
         loss = self.loss_func(predicts, labels, preds_lengths, label_lengths)
-        loss = loss.mean()  # sum
+        if self.reduction == "mean":
+            loss = loss.mean()
+        elif self.reduction == "sum":
+            loss = loss.sum()
         return {'loss': loss}

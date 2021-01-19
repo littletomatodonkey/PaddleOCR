@@ -27,6 +27,7 @@ class MobileNetV3(nn.Layer):
                  large_stride=None,
                  small_stride=None,
                  last_act="hard_swish",
+                 prefix_name="",
                  **kwargs):
         super(MobileNetV3, self).__init__()
         if small_stride is None:
@@ -98,7 +99,7 @@ class MobileNetV3(nn.Layer):
             groups=1,
             if_act=True,
             act='hard_swish',
-            name='conv1')
+            name=prefix_name + 'conv1')
         i = 0
         block_list = []
         inplanes = make_divisible(inplanes * scale)
@@ -112,7 +113,7 @@ class MobileNetV3(nn.Layer):
                     stride=s,
                     use_se=se,
                     act=nl,
-                    name='conv' + str(i + 2)))
+                    name=prefix_name + 'conv' + str(i + 2)))
             inplanes = make_divisible(scale * c)
             i += 1
         self.blocks = nn.Sequential(*block_list)
@@ -126,7 +127,7 @@ class MobileNetV3(nn.Layer):
             groups=1,
             if_act=True,
             act=last_act,
-            name='conv_last')
+            name=prefix_name + 'conv_last')
 
         self.pool = nn.MaxPool2D(kernel_size=2, stride=2, padding=0)
         self.out_channels = make_divisible(scale * cls_ch_squeeze)

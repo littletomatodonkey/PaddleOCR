@@ -102,6 +102,8 @@ class CTCLabelDecode(BaseRecLabelDecode):
                                              character_type, use_space_char)
 
     def __call__(self, preds, label=None, *args, **kwargs):
+        if isinstance(preds, dict):
+            preds = preds["head_out"]
         if isinstance(preds, paddle.Tensor):
             preds = preds.numpy()
 
@@ -110,7 +112,7 @@ class CTCLabelDecode(BaseRecLabelDecode):
         text = self.decode(preds_idx, preds_prob)
         if label is None:
             return text
-        label = self.decode(label, is_remove_duplicate=False)
+        label = self.decode(label)
         return text, label
 
     def add_special_char(self, dict_character):

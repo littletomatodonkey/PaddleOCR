@@ -39,6 +39,7 @@ class MobileNetV3(nn.Layer):
                  model_name='large',
                  scale=0.5,
                  disable_se=False,
+                 prefix_name="",
                  **kwargs):
         """
         the MobilenetV3 backbone network for detection module.
@@ -103,7 +104,7 @@ class MobileNetV3(nn.Layer):
             groups=1,
             if_act=True,
             act='hard_swish',
-            name='conv1')
+            name=prefix_name + 'conv1')
 
         self.stages = []
         self.out_channels = []
@@ -125,7 +126,7 @@ class MobileNetV3(nn.Layer):
                     stride=s,
                     use_se=se,
                     act=nl,
-                    name="conv" + str(i + 2)))
+                    name=prefix_name + "conv" + str(i + 2)))
             inplanes = make_divisible(scale * c)
             i += 1
         block_list.append(
@@ -138,7 +139,7 @@ class MobileNetV3(nn.Layer):
                 groups=1,
                 if_act=True,
                 act='hard_swish',
-                name='conv_last'))
+                name=prefix_name + 'conv_last'))
         self.stages.append(nn.Sequential(*block_list))
         self.out_channels.append(make_divisible(scale * cls_ch_squeeze))
         for i, stage in enumerate(self.stages):

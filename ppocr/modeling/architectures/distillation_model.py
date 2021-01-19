@@ -36,20 +36,24 @@ class DistillationModel(nn.Layer):
         config["Teacher"]["model_type"] = config["model_type"]
         config["Teacher"]["algorithm"] = config["algorithm"]
 
+        self.freeze_teacher = config.get("freeze_teacher", True)
+
         config["Student"]["model_type"] = config["model_type"]
         config["Student"]["algorithm"] = config["algorithm"]
+
         self.teacher = BaseModel(config["Teacher"])
-
-        for param in self.teacher.parameters():
-            param.trainable = False
-
         self.student = BaseModel(config["Student"])
 
-    def forward(self, x):
-        teacher_out = self.teacher.forward(x)
-        student_out = self.student.forward(x)
+        if self.freeze_teacher:
+            for param in self.teacher.parameters():
+                param.trainable = False
+        else:
+            print(
+                "teacher model is not freezed during during training process...")
 
-        # teacher_out.stop_gradient = True
+    def forward(self, x):
+        teacher_out = self.teacher.forward(x, fetch_all_feats=True)
+        student_out = self.student.forward(x, fetch_all_feats=True)
 
         result = {
             "teacher_out": teacher_out,

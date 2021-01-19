@@ -23,30 +23,54 @@ from paddle import nn
 import paddle.nn.functional as F
 
 from .rec_ctc_loss import CTCLoss
+from .dml import DML
+
+# more losses can refer to https://github.com/AberHu/Knowledge-Distillation-Zoo
 
 
 class InClassLoss(nn.Layer):
-    def __init__(self):
-        pass
+    def __init__(self,
+                 num_sections=4,
+                 loss_ratio=1.0,
+                 loss_type="l2loss",
+                 **args):
+        self.num_sections = num_sections
+        self.loss_ratio = loss_ratio
+        self.loss_type = loss_type
 
-    def __call__(self, x):
-        pass
+    def __call__(self, predicts, batch):
+        # self distillation loss
+        predicts_list = paddle.split(
+            predicts, num_or_sections=self.num_sections, axis=0)
+        loss_list = []
+        for ii in range(len(predicts_list)):
+            for jj in range(ii, len(predicts_list)):
+                if self.loss_type == "l2loss":
+                    loss_list.append(
+                        F.mse_loss(predicts_list[ii], predicts_list[jj]))
+                else:
+                    assert False
+        cost = paddle.add_n(loss_list) / len(loss_list)
+        return cost * self.loss_ratio
 
 
 class DistillationLoss(nn.Layer):
     def __init__(self,
                  loss_type="celoss",
-                 with_ctc_loss=False,
+                 with_student_ctc_loss=False,
                  ctc_loss_ratio=0.5,
                  distillation_loss_ratio=0.5,
                  with_inclass_loss=False,
                  inclas_loss_type="l2loss",
                  inclas_loss_ratio=1.0,
                  blank_weight=None,
+                 with_teacher_ctc_loss=False,
+                 use_dml_loss=False,
+                 dml_loss_ratio=0.5,
                  **kwargs):
         super(DistillationLoss, self).__init__()
         self.loss_type = loss_type
-        self.with_ctc_loss = with_ctc_loss
+        self.with_student_ctc_loss = with_student_ctc_loss
         self.ctc_loss_ratio = ctc_loss_ratio
         self.distillation_loss_ratio = distillation_loss_ratio
 
@@ -56,15 +80,23 @@ class DistillationLoss(nn.Layer):
 
         self.blank_weight = blank_weight
 
+        # for DML loss
+        self.with_teacher_ctc_loss = with_teacher_ctc_loss
+        self.use_dml_loss = use_dml_loss
+        self.dml_loss_ratio = dml_loss_ratio
+
+        if self.use_dml_loss:
+            self.dml_loss_func = DML(self.dml_loss_ratio)
+
         # TODO: add more loss
-        supported_loss_type = ["celoss", "l2loss", "l1loss"]
+        supported_loss_type = ["celoss", "l2loss", "l1loss", "dmlloss"]
         assert self.loss_type in supported_loss_type, "self.loss_type({}) must be in supported_loss_type({})".format(
             self.loss_type, supported_loss_type)
 
         supported_inclas_loss_type = ["l2loss"]
         assert self.inclas_loss_type in supported_loss_type, "self.inclas_loss_type({}) must be in supported_loss_type({})".format(
             self.inclas_loss_type, supported_inclas_loss_type)
-        if self.with_ctc_loss:
+        if self.with_student_ctc_loss:
             self.ctc_loss_func = CTCLoss()
 
     def __call__(self, predicts, batch):
@@ -92,13 +124,16 @@ class DistillationLoss(nn.Layer):
         elif self.loss_type == "l1loss":
             cost = F.l1_loss(student_out, teacher_out, reduction='mean')
             loss_dict["l1loss"] = cost * self.distillation_loss_ratio
+        elif self.loss_type == "dmlloss":
+            cost1 = self.dml_loss_func(student_out, teacher_out)
+            cost2 = self.dml_loss_func(teacher_out, student_out)
+            cost = (cost1 + cost2) / 2.0
+            loss_dict["dmlloss"] = cost
         else:
             assert False, "not supported loss type!"
 
         # data is split in 4 parts
         if self.with_inclass_loss:
-            batch_size = teacher_out.shape[0] // 4
-            teacher_batch_list = paddle.split(teacher_out, num_or_sections=4)
             student_batch_list = paddle.split(student_out, num_or_sections=4)
 
             if self.inclas_loss_type == "l2loss":
@@ -114,10 +149,15 @@ class DistillationLoss(nn.Layer):
             else:
                 assert False
 
-        if self.with_ctc_loss:
-            ctc_loss = self.ctc_loss_func(student_out,
-                                          batch)["loss"] * self.ctc_loss_ratio
-            loss_dict["ctcloss"] = ctc_loss
+        if self.with_student_ctc_loss:
+            student_ctc_loss = self.ctc_loss_func(
+                student_out, batch)["loss"] * self.ctc_loss_ratio
+            loss_dict["student_ctcloss"] = student_ctc_loss
+
+        if self.with_teacher_ctc_loss:
+            teacher_ctc_loss = self.ctc_loss_func(
+                teacher_out, batch)["loss"] * self.ctc_loss_ratio
+            loss_dict["teacher_ctcloss"] = teacher_ctc_loss
 
         loss_dict["loss"] = paddle.add_n(list(loss_dict.values()))
         return loss_dict
@@ -143,24 +183,17 @@ class SelfDistillationLoss(nn.Layer):
             self.distillation_loss_type, supported_distillation_loss_type)
 
         if with_ctc_loss:
-            self.ctc_loss_func = CTCLoss(blank=0, reduction='none')
+            self.ctc_loss_func = CTCLoss(blank=0, reduction='mean')
+
+        self.in_class_loss_func = InClassLoss(
+            num_sections=4,
+            loss_ratio=distillation_loss_ratio,
+            loss_type=distillation_loss_type)
 
     def __call__(self, predicts, batch):
         loss_dict = {}
 
-        # self distillation loss
-        predicts_list = paddle.split(
-            predicts, num_or_sections=self.num_section, axis=0)
-        loss_list = []
-        for ii in range(len(predicts_list)):
-            for jj in range(ii, len(predicts_list)):
-                if self.distillation_loss_type == "l2loss":
-                    loss_list.append(
-                        F.mse_loss(predicts_list[ii], predicts_list[jj]))
-                else:
-                    assert False
-        cost = paddle.add_n(loss_list) / len(loss_list)
-        loss_dict["inclass_l2loss"] = cost * self.distillation_loss_ratio
+        loss_dict["inclass_l2loss"] = self.in_class_loss_func(predicts, batch)
 
         # ctc loss
         if self.with_ctc_loss:
@@ -173,10 +206,32 @@ class SelfDistillationLoss(nn.Layer):
 
 
 class TDecodeCTCLoss(nn.Layer):
-    def __init__(self, loss_ratio=1.0, **kwargs):
+    def __init__(self,
+                 loss_ratio=1.0,
+                 use_weight_loss=False,
+                 weight_loss_type="direct",
+                 use_inclass_loss=False,
+                 inclass_loss_ratio=1.0,
+                 inclass_loss_type="l2loss",
+                 **kwargs):
         super(TDecodeCTCLoss, self).__init__()
         self.loss_ratio = loss_ratio
+        self.use_weight_loss = use_weight_loss
+        self.weight_loss_type = weight_loss_type
         self.ctc_loss_func = CTCLoss(blank=0, reduction='none')
+        self.use_inclass_loss = use_inclass_loss
+        self.inclass_loss_ratio = inclass_loss_ratio
+        self.inclass_loss_type = inclass_loss_type
+
+        # direct: loss * weight
+        # exp_minux: loss * exp(1.0-weight)
+        assert weight_loss_type in ["direct", "exp_minus"]
+
+        if self.use_inclass_loss:
+            self.inclass_loss_func = InClassLoss(
+                num_sections=4,
+                loss_ratio=self.inclass_loss_ratio,
+                loss_type=self.inclass_loss_type)
 
     def get_ignored_tokens(self):
         return [0]  # for ctc blank
@@ -207,7 +262,7 @@ class TDecodeCTCLoss(nn.Layer):
                 if text_prob is not None:
                     conf_list.append(text_prob[batch_idx][idx])
                 else:
-                    conf_list.append(1)
+                    conf_list.append(1.0)
             result_char_list.append(char_list)
             result_conf_list.append(np.mean(conf_list))
         return result_char_list, result_conf_list
@@ -216,8 +271,8 @@ class TDecodeCTCLoss(nn.Layer):
         '''
         the gt is got from predicts
         '''
-        teacher_out = predicts["teacher_out"]
-        student_out = predicts["student_out"]
+        teacher_out = predicts["teacher_out"]["head_out"]
+        student_out = predicts["student_out"]["head_out"]
 
         loss_dict = {}
 
@@ -228,10 +283,12 @@ class TDecodeCTCLoss(nn.Layer):
         max_length = batch[1].shape[1]
 
         decoded_preds_label, preds_prob = self.decode_teacher(
-            preds_label, preds_prob, is_remove_duplicate=False)
+            preds_label, preds_prob, is_remove_duplicate=True)
         predicts_len_list = [
             min(max_length, len(pred)) for pred in decoded_preds_label
         ]
+        # preds_prob = [1.0] * len(preds_prob)
+
         predicts_len_list = paddle.to_tensor(predicts_len_list, dtype="int64")
         for idx in range(len(decoded_preds_label)):
             decoded_preds_label[idx].extend([0] * (
@@ -240,13 +297,93 @@ class TDecodeCTCLoss(nn.Layer):
 
         decoded_preds_label = paddle.to_tensor(
             decoded_preds_label, dtype="int64")
-        preds_prob = np.array(preds_prob).astype("float32")
+
+        preds_prob = paddle.to_tensor(preds_prob, dtype="float32")
+        # prevent model from multiply nan
+        preds_prob = paddle.where(
+            paddle.isnan(preds_prob), paddle.ones_like(preds_prob), preds_prob)
 
         teacher_batch = batch
-        teacher_batch[1] = decoded_preds_label
-        teacher_batch[2] = predicts_len_list
-        loss_dict["decode_ctc_loss"] = self.ctc_loss_func(
-            student_out, teacher_batch)["loss"] * self.loss_ratio
+        #         teacher_batch[1] = decoded_preds_label
+        #         teacher_batch[2] = predicts_len_list
+
+        loss = self.ctc_loss_func(student_out, teacher_batch)["loss"]
+
+        if self.use_weight_loss:
+            if self.weight_loss_type == "exp_minus":
+                preds_prob = paddle.clip(preds_prob, min=0.6, max=1.0)
+                preds_prob = paddle.exp(1 - preds_prob)
+            elif self.weight_loss_type == "direct":
+                preds_prob = preds_prob
+            loss = paddle.multiply(loss, preds_prob)
+            # print("use_weight: ", loss)
+
+        if self.use_inclass_loss:
+            inclass_loss = self.inclass_loss_func(student_out, batch)
+            loss_dict["inclass_loss"] = inclass_loss
+
+        loss_dict["decode_ctc_loss"] = loss.mean() * self.loss_ratio
+
+        loss_dict["loss"] = paddle.add_n(list(loss_dict.values()))
+        return loss_dict
+
+
+class AllFeatLoss(nn.Layer):
+    def __init__(self, **args):
+        super(AllFeatLoss, self).__init__()
+
+    def __call__(self, predicts, batch):
+        '''
+        the gt is got from predicts
+        '''
+        teacher_out = predicts["teacher_out"]["head_out"]
+        student_out = predicts["student_out"]["head_out"]
+
+        loss_dict = {}
+
+        y = F.softmax(teacher_out, axis=-1)
+        preds_label = y.argmax(axis=2).numpy()
+        preds_prob = y.max(axis=2).numpy()
+
+        max_length = batch[1].shape[1]
+
+        decoded_preds_label, preds_prob = self.decode_teacher(
+            preds_label, preds_prob, is_remove_duplicate=True)
+        predicts_len_list = [
+            min(max_length, len(pred)) for pred in decoded_preds_label
+        ]
+        # preds_prob = [1.0] * len(preds_prob)
+
+        predicts_len_list = paddle.to_tensor(predicts_len_list, dtype="int64")
+        for idx in range(len(decoded_preds_label)):
+            decoded_preds_label[idx].extend([0] * (
+                max_length - len(decoded_preds_label[idx])))
+            decoded_preds_label[idx] = decoded_preds_label[idx][:max_length]
+
+        decoded_preds_label = paddle.to_tensor(
+            decoded_preds_label, dtype="int64")
+
+        preds_prob = paddle.to_tensor(preds_prob, dtype="float32")
+        # prevent model from multiply nan
+        preds_prob = paddle.where(
+            paddle.isnan(preds_prob), paddle.ones_like(preds_prob), preds_prob)
+
+        teacher_batch = batch
+        #         teacher_batch[1] = decoded_preds_label
+        #         teacher_batch[2] = predicts_len_list
+
+        loss = self.ctc_loss_func(student_out, teacher_batch)["loss"]
+
+        if self.use_weight_loss:
+            if self.weight_loss_type == "exp_minus":
+                preds_prob = paddle.clip(preds_prob, min=0.6, max=1.0)
+                preds_prob = paddle.exp(1 - preds_prob)
+            elif self.weight_loss_type == "direct":
+                preds_prob = preds_prob
+            loss = paddle.multiply(loss, preds_prob)
+            # print("use_weight: ", loss)
+
+        loss_dict["decode_ctc_loss"] = loss.mean() * self.loss_ratio
 
         loss_dict["loss"] = paddle.add_n(list(loss_dict.values()))
         return loss_dict
