@@ -48,6 +48,10 @@ class InClassLoss(nn.Layer):
                 if self.loss_type == "l2loss":
                     loss_list.append(
                         F.mse_loss(predicts_list[ii], predicts_list[jj]))
+                elif self.loss_type == "cossim_loss":
+                    curr_loss = F.cosine_similarity(
+                        predicts_list[ii], predicts_list[jj], axis=-1)
+                    loss_list.append(curr_loss.mean())
                 else:
                     assert False
         cost = paddle.add_n(loss_list) / len(loss_list)
@@ -63,6 +67,7 @@ class DistillationLoss(nn.Layer):
                  with_inclass_loss=False,
                  inclas_loss_type="l2loss",
                  inclas_loss_ratio=1.0,
+                 inclas_num_sections=4,
                  blank_weight=None,
                  with_teacher_ctc_loss=False,
                  use_dml_loss=False,
@@ -77,6 +82,7 @@ class DistillationLoss(nn.Layer):
         self.with_inclass_loss = with_inclass_loss
         self.inclas_loss_type = inclas_loss_type
         self.inclas_loss_ratio = inclas_loss_ratio
+        self.inclas_num_sections = inclas_num_sections
 
         self.blank_weight = blank_weight
 
@@ -93,9 +99,13 @@ class DistillationLoss(nn.Layer):
         assert self.loss_type in supported_loss_type, "self.loss_type({}) must be in supported_loss_type({})".format(
             self.loss_type, supported_loss_type)
 
-        supported_inclas_loss_type = ["l2loss"]
-        assert self.inclas_loss_type in supported_loss_type, "self.inclas_loss_type({}) must be in supported_loss_type({})".format(
-            self.inclas_loss_type, supported_inclas_loss_type)
+        # build inclass loss
+        if self.with_inclass_loss:
+            self.inclass_loss_func = InClassLoss(
+                num_sections=self.inclas_num_sections,
+                loss_ratio=self.inclas_loss_ratio,
+                loss_type=self.inclas_loss_type)
+
         if self.with_student_ctc_loss:
             self.ctc_loss_func = CTCLoss()
 
@@ -110,19 +120,22 @@ class DistillationLoss(nn.Layer):
 
         loss_dict = dict()
         if self.loss_type == "celoss":
-            y = F.softmax(teacher_out, axis=-1)
+            y = F.softmax(teacher_out["head_out"], axis=-1)
             # with weighted loss
             if loss_weight is not None:
                 loss_weight = loss_weight.reshape((1, 1, -1))
                 y = paddle.multiply(y, loss_weight)
-            cost = F.cross_entropy(student_out, y, soft_label=True)
+            cost = F.cross_entropy(student_out["head_out"], y, soft_label=True)
             cost = paddle.mean(cost)
             loss_dict["celoss"] = cost * self.distillation_loss_ratio
         elif self.loss_type == "l2loss":
-            cost = F.mse_loss(student_out, teacher_out)
+            cost = F.mse_loss(student_out["head_out"], teacher_out["head_out"])
             loss_dict["l2loss"] = cost * self.distillation_loss_ratio
         elif self.loss_type == "l1loss":
-            cost = F.l1_loss(student_out, teacher_out, reduction='mean')
+            cost = F.l1_loss(
+                student_out["head_out"],
+                teacher_out["head_out"],
+                reduction='mean')
             loss_dict["l1loss"] = cost * self.distillation_loss_ratio
         elif self.loss_type == "dmlloss":
             cost1 = self.dml_loss_func(student_out, teacher_out)
@@ -134,20 +147,8 @@ class DistillationLoss(nn.Layer):
 
         # data is split in 4 parts
         if self.with_inclass_loss:
-            student_batch_list = paddle.split(student_out, num_or_sections=4)
-
-            if self.inclas_loss_type == "l2loss":
-                loss_list = []
-                for ii in range(len(student_batch_list)):
-                    for jj in range(ii, len(student_batch_list)):
-                        loss_list.append(
-                            F.mse_loss(student_batch_list[ii],
-                                       student_batch_list[jj]))
-
-                cost = paddle.add_n(loss_list) / len(loss_list)
-                loss_dict["inclass_l2loss"] = cost * self.inclas_loss_ratio
-            else:
-                assert False
+            cost = self.inclass_loss_func(student_out["head_out"], batch)
+            loss_dict["inclass_l2loss"] = cost
 
         if self.with_student_ctc_loss:
             student_ctc_loss = self.ctc_loss_func(
@@ -170,6 +171,7 @@ class SelfDistillationLoss(nn.Layer):
                  distillation_loss_ratio=0.0,
                  with_ctc_loss=False,
                  ctc_loss_ratio=0.0,
+                 loss_after_softmax=False,
                  **kwargs):
         super(SelfDistillationLoss, self).__init__()
         self.num_section = num_section
@@ -177,10 +179,7 @@ class SelfDistillationLoss(nn.Layer):
         self.ctc_loss_ratio = ctc_loss_ratio
         self.distillation_loss_ratio = distillation_loss_ratio
         self.distillation_loss_type = distillation_loss_type
-
-        supported_distillation_loss_type = ["l2loss"]
-        assert distillation_loss_type in supported_distillation_loss_type, "distillation_loss_type({}) must be in supported_distillation_loss_type({})".format(
-            self.distillation_loss_type, supported_distillation_loss_type)
+        self.loss_after_softmax = loss_after_softmax
 
         if with_ctc_loss:
             self.ctc_loss_func = CTCLoss(blank=0, reduction='mean')
@@ -193,7 +192,12 @@ class SelfDistillationLoss(nn.Layer):
     def __call__(self, predicts, batch):
         loss_dict = {}
 
-        loss_dict["inclass_l2loss"] = self.in_class_loss_func(predicts, batch)
+        if self.loss_after_softmax:
+            out = F.softmax(predicts, axis=-1)
+        else:
+            out = predicts
+        loss_dict["inclass_{}".format(
+            self.distillation_loss_type)] = self.in_class_loss_func(out, batch)
 
         # ctc loss
         if self.with_ctc_loss:
