@@ -28,6 +28,21 @@ from .dml import DML
 # more losses can refer to https://github.com/AberHu/Knowledge-Distillation-Zoo
 
 
+def _kldiv(input, target, eps=1.0e-10):
+    cost = target * paddle.log((target + eps) / (input + eps)) * input.shape[-1]
+    return cost
+
+
+# refer to PaddleClas
+def jsdiv_me(input, target):
+    input = F.softmax(input)
+    target = F.softmax(target)
+    cost = _kldiv(input, target) + _kldiv(target, input)
+    cost = cost / 2
+    avg_cost = paddle.mean(cost)
+    return avg_cost
+
+
 class InClassLoss(nn.Layer):
     def __init__(self,
                  num_sections=4,
@@ -37,6 +52,10 @@ class InClassLoss(nn.Layer):
         self.num_sections = num_sections
         self.loss_ratio = loss_ratio
         self.loss_type = loss_type
+
+        supported_types = ["l2loss", "cossim_loss", "jsdiv_me_loss"]
+        assert loss_type in supported_types, "loss type must be in {} but got {}".format(
+            supported_types, loss_type)
 
     def __call__(self, predicts, batch):
         # self distillation loss
@@ -51,6 +70,9 @@ class InClassLoss(nn.Layer):
                 elif self.loss_type == "cossim_loss":
                     curr_loss = F.cosine_similarity(
                         predicts_list[ii], predicts_list[jj], axis=-1)
+                    loss_list.append(curr_loss.mean())
+                elif self.loss_type == "jsdiv_me_loss":
+                    curr_loss = jsdiv_me(predicts_list[ii], predicts_list[jj])
                     loss_list.append(curr_loss.mean())
                 else:
                     assert False
@@ -166,7 +188,7 @@ class DistillationLoss(nn.Layer):
 
 class SelfDistillationLoss(nn.Layer):
     def __init__(self,
-                 num_section=4,
+                 num_sections=4,
                  distillation_loss_type="l2loss",
                  distillation_loss_ratio=0.0,
                  with_ctc_loss=False,
@@ -174,7 +196,7 @@ class SelfDistillationLoss(nn.Layer):
                  loss_after_softmax=False,
                  **kwargs):
         super(SelfDistillationLoss, self).__init__()
-        self.num_section = num_section
+        self.num_sections = num_sections
         self.with_ctc_loss = with_ctc_loss
         self.ctc_loss_ratio = ctc_loss_ratio
         self.distillation_loss_ratio = distillation_loss_ratio
@@ -185,7 +207,7 @@ class SelfDistillationLoss(nn.Layer):
             self.ctc_loss_func = CTCLoss(blank=0, reduction='mean')
 
         self.in_class_loss_func = InClassLoss(
-            num_sections=4,
+            num_sections=num_sections,
             loss_ratio=distillation_loss_ratio,
             loss_type=distillation_loss_type)
 
