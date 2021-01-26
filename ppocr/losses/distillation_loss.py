@@ -43,6 +43,24 @@ def jsdiv_me(input, target):
     return avg_cost
 
 
+def balanced_l1_loss(pred,
+                     target,
+                     beta=0.3,
+                     alpha=0.5,
+                     gamma=1.5,
+                     reduction='mean'):
+    # beta=0.3, is got when we find the initial value is about 0.34
+    assert beta > 0
+    diff = paddle.abs(pred - target)
+    b = np.e**(gamma / alpha) - 1
+    loss = paddle.where(
+        diff < beta, alpha / b *
+        (b * diff + 1) * paddle.log(b * diff / beta + 1) - alpha * diff,
+        gamma * diff + gamma / b - alpha * beta)
+    loss = loss.mean()
+    return loss
+
+
 class InClassLoss(nn.Layer):
     def __init__(self,
                  num_sections=4,
@@ -53,7 +71,9 @@ class InClassLoss(nn.Layer):
         self.loss_ratio = loss_ratio
         self.loss_type = loss_type
 
-        supported_types = ["l2loss", "cossim_loss", "jsdiv_me_loss"]
+        supported_types = [
+            "l1loss", "l2loss", "cossim_loss", "jsdiv_me_loss", "libra_loss"
+        ]
         assert loss_type in supported_types, "loss type must be in {} but got {}".format(
             supported_types, loss_type)
 
@@ -64,7 +84,10 @@ class InClassLoss(nn.Layer):
         loss_list = []
         for ii in range(len(predicts_list)):
             for jj in range(ii, len(predicts_list)):
-                if self.loss_type == "l2loss":
+                if self.loss_type == "l1loss":
+                    loss_list.append(
+                        F.l1_loss(predicts_list[ii], predicts_list[jj]))
+                elif self.loss_type == "l2loss":
                     loss_list.append(
                         F.mse_loss(predicts_list[ii], predicts_list[jj]))
                 elif self.loss_type == "cossim_loss":
@@ -73,6 +96,10 @@ class InClassLoss(nn.Layer):
                     loss_list.append(curr_loss.mean())
                 elif self.loss_type == "jsdiv_me_loss":
                     curr_loss = jsdiv_me(predicts_list[ii], predicts_list[jj])
+                    loss_list.append(curr_loss.mean())
+                elif self.loss_type == "libra_loss":
+                    curr_loss = balanced_l1_loss(predicts_list[ii],
+                                                 predicts_list[jj])
                     loss_list.append(curr_loss.mean())
                 else:
                     assert False
