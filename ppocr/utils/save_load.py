@@ -161,6 +161,27 @@ def init_model(config, model, logger, optimizer=None, lr_scheduler=None):
     return best_model_dict
 
 
+def _save_distillation_model(net, logger, model_prefix):
+    if hasattr(net, "_layers"):
+        sub_net = net._layers
+    else:
+        sub_net = net
+
+    student_model_path = model_prefix + "_student.pdparams"
+    teacher_model_path = model_prefix + "_teacher.pdparams"
+
+    if hasattr(sub_net, "student"):
+        paddle.save(sub_net.student.state_dict(), student_model_path)
+        logger.info("Already save student model in {}".format(
+            student_model_path))
+
+    if hasattr(sub_net, "teacher"):
+        paddle.save(sub_net.teacher.state_dict(), teacher_model_path)
+        logger.info("Already save teacher model in {}".format(
+            teacher_model_path))
+    return
+
+
 def save_model(net,
                optimizer,
                model_path,
@@ -175,6 +196,8 @@ def save_model(net,
     model_prefix = os.path.join(model_path, prefix)
     paddle.save(net.state_dict(), model_prefix + '.pdparams')
     paddle.save(optimizer.state_dict(), model_prefix + '.pdopt')
+
+    _save_distillation_model(net, logger, model_prefix)
 
     # save metric and config
     with open(model_prefix + '.states', 'wb') as f:

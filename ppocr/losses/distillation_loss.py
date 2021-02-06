@@ -114,9 +114,9 @@ class DistillationLoss(nn.Layer):
                  ctc_loss_ratio=0.5,
                  distillation_loss_ratio=0.5,
                  with_inclass_loss=False,
-                 inclas_loss_type="l2loss",
-                 inclas_loss_ratio=1.0,
-                 inclas_num_sections=4,
+                 inclass_loss_type="l2loss",
+                 inclass_loss_ratio=1.0,
+                 inclass_num_sections=4,
                  blank_weight=None,
                  with_teacher_ctc_loss=False,
                  use_dml_loss=False,
@@ -129,9 +129,9 @@ class DistillationLoss(nn.Layer):
         self.distillation_loss_ratio = distillation_loss_ratio
 
         self.with_inclass_loss = with_inclass_loss
-        self.inclas_loss_type = inclas_loss_type
-        self.inclas_loss_ratio = inclas_loss_ratio
-        self.inclas_num_sections = inclas_num_sections
+        self.inclass_loss_type = inclass_loss_type
+        self.inclass_loss_ratio = inclass_loss_ratio
+        self.inclass_num_sections = inclass_num_sections
 
         self.blank_weight = blank_weight
 
@@ -151,9 +151,9 @@ class DistillationLoss(nn.Layer):
         # build inclass loss
         if self.with_inclass_loss:
             self.inclass_loss_func = InClassLoss(
-                num_sections=self.inclas_num_sections,
-                loss_ratio=self.inclas_loss_ratio,
-                loss_type=self.inclas_loss_type)
+                num_sections=self.inclass_num_sections,
+                loss_ratio=self.inclass_loss_ratio,
+                loss_type=self.inclass_loss_type)
 
         if self.with_student_ctc_loss:
             self.ctc_loss_func = CTCLoss()
@@ -197,7 +197,7 @@ class DistillationLoss(nn.Layer):
         # data is split in 4 parts
         if self.with_inclass_loss:
             cost = self.inclass_loss_func(student_out["head_out"], batch)
-            loss_dict["inclass_l2loss"] = cost
+            loss_dict["inclass_{}".format(self.inclass_loss_type)] = cost
 
         if self.with_student_ctc_loss:
             student_ctc_loss = self.ctc_loss_func(
