@@ -87,31 +87,34 @@ def load_distillation_model(model, pretrained_model, load_static_weights,
                             logger):
     logger.info("In distillation mode, teacher model will be "
                 "loaded firstly before student model.")
-    assert len(pretrained_model
-               ) == 2, "pretrained_model length should be 2 but got {}".format(
-                   len(pretrained_model))
-    assert len(
-        load_static_weights
-    ) == 2, "load_static_weights length should be 2 but got {}".format(
-        len(load_static_weights))
     teacher = model.teacher if hasattr(model,
                                        "teacher") else model._layers.teacher
     student = model.student if hasattr(model,
                                        "student") else model._layers.student
-    load_dygraph_pretrain(
-        teacher,
-        logger,
-        path=pretrained_model[0],
-        load_static_weights=load_static_weights[0])
-    logger.info("Finish initing teacher model from {}".format(pretrained_model[
-        0]))
+    if isinstance(teacher, (list, )):
+        for idx, t in enumerate(teacher):
+            load_dygraph_pretrain(
+                t,
+                logger,
+                path=pretrained_model[idx],
+                load_static_weights=load_static_weights[idx])
+            logger.info("Finish initing teacher model from {}".format(
+                pretrained_model[idx]))
+    else:
+        load_dygraph_pretrain(
+            teacher,
+            logger,
+            path=pretrained_model[0],
+            load_static_weights=load_static_weights[0])
+        logger.info("Finish initing teacher model from {}".format(
+            pretrained_model[0]))
     load_dygraph_pretrain(
         student,
         logger,
-        path=pretrained_model[1],
-        load_static_weights=load_static_weights[1])
+        path=pretrained_model[-1],
+        load_static_weights=load_static_weights[-1])
     logger.info("Finish initing student model from {}".format(pretrained_model[
-        1]))
+        -1]))
 
 
 def init_model(config, model, logger, optimizer=None, lr_scheduler=None):
@@ -176,9 +179,17 @@ def _save_distillation_model(net, logger, model_prefix):
             student_model_path))
 
     if hasattr(sub_net, "teacher"):
-        paddle.save(sub_net.teacher.state_dict(), teacher_model_path)
-        logger.info("Already save teacher model in {}".format(
-            teacher_model_path))
+        if isinstance(sub_net.teacher, (list)):
+            for idx, t in enumerate(sub_net.teacher):
+                teacher_model_path = model_prefix + "_teacher_{}.pdparams".format(
+                    idx)
+                paddle.save(t.state_dict(), teacher_model_path)
+                logger.info("Already save teacher model in {}".format(
+                    teacher_model_path))
+        else:
+            paddle.save(sub_net.teacher.state_dict(), teacher_model_path)
+            logger.info("Already save teacher model in {}".format(
+                teacher_model_path))
     return
 
 

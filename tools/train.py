@@ -64,7 +64,13 @@ def main(config, device, logger, vdl_writer):
     if hasattr(post_process_class, 'character'):
         char_num = len(getattr(post_process_class, 'character'))
         if config['Architecture'].get("use_distillation", False):
-            config['Architecture']["Teacher"]["Head"]['out_channels'] = char_num
+            if config['Architecture'].get("use_multi_teacher", False):
+                for key in config['Architecture']["Teacher"]:
+                    config['Architecture']["Teacher"][key]["Head"][
+                        'out_channels'] = char_num
+            else:
+                config['Architecture']["Teacher"]["Head"][
+                    'out_channels'] = char_num
             config['Architecture']["Student"]["Head"]['out_channels'] = char_num
         else:
             config['Architecture']["Head"]['out_channels'] = char_num

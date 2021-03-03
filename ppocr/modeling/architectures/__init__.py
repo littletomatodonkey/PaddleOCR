@@ -21,10 +21,15 @@ def build_model(config):
 
     from .base_model import BaseModel
     from .distillation_model import DistillationModel
+    from .general_dist_model import GeneralDistModel
     config = copy.deepcopy(config)
     use_distillation = config.get("use_distillation", False)
+    use_multi_teacher = config.get("use_multi_teacher", False)
     if use_distillation:
-        module_class = DistillationModel(config)
+        if use_multi_teacher:
+            module_class = GeneralDistModel(config)
+        else:
+            module_class = DistillationModel(config)
     else:
         module_class = BaseModel(config)
     return module_class
