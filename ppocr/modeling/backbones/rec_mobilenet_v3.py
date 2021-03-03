@@ -28,6 +28,7 @@ class MobileNetV3(nn.Layer):
                  small_stride=None,
                  last_act="hard_swish",
                  prefix_name="",
+                 embedding_size=None,
                  **kwargs):
         super(MobileNetV3, self).__init__()
         if small_stride is None:
@@ -118,23 +119,40 @@ class MobileNetV3(nn.Layer):
             i += 1
         self.blocks = nn.Sequential(*block_list)
 
+        self.out_channels = make_divisible(scale * cls_ch_squeeze)
         self.conv2 = ConvBNLayer(
             in_channels=inplanes,
-            out_channels=make_divisible(scale * cls_ch_squeeze),
+            out_channels=self.out_channels,
             kernel_size=1,
             stride=1,
             padding=0,
             groups=1,
-            if_act=True,
+            if_act=embedding_size is
+            None,  # when embedding_size is None, act needs to be done here, otherwise done in embedding
             act=last_act,
             name=prefix_name + 'conv_last')
 
+        self.embedding_size = embedding_size
+        if embedding_size is not None:
+            self.embedding_conv = ConvBNLayer(
+                in_channels=self.out_channels,
+                out_channels=embedding_size,
+                kernel_size=3,
+                stride=1,
+                padding=1,
+                groups=1,
+                if_act=True,
+                act=last_act,
+                name=prefix_name + 'conv_last_embedding')
+            self.out_channels = embedding_size
+
         self.pool = nn.MaxPool2D(kernel_size=2, stride=2, padding=0)
-        self.out_channels = make_divisible(scale * cls_ch_squeeze)
 
     def forward(self, x):
         x = self.conv1(x)
         x = self.blocks(x)
         x = self.conv2(x)
+        if self.embedding_size is not None:
+            x = self.embedding_conv(x)
         x = self.pool(x)
         return x

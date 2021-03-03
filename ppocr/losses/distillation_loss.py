@@ -119,8 +119,10 @@ class DistillationLoss(nn.Layer):
                  inclass_num_sections=4,
                  blank_weight=None,
                  with_teacher_ctc_loss=False,
-                 use_dml_loss=False,
                  dml_loss_ratio=0.5,
+                 with_backbone_loss=False,
+                 backbone_loss_type="l2loss",
+                 backbone_loss_ratio=0.5,
                  **kwargs):
         super(DistillationLoss, self).__init__()
         self.loss_type = loss_type
@@ -137,11 +139,15 @@ class DistillationLoss(nn.Layer):
 
         # for DML loss
         self.with_teacher_ctc_loss = with_teacher_ctc_loss
-        self.use_dml_loss = use_dml_loss
+        self.use_dml_loss = self.loss_type == "dmlloss"
         self.dml_loss_ratio = dml_loss_ratio
 
         if self.use_dml_loss:
             self.dml_loss_func = DML(self.dml_loss_ratio)
+
+        self.with_backbone_loss = with_backbone_loss
+        self.backbone_loss_type = backbone_loss_type
+        self.backbone_loss_ratio = backbone_loss_ratio
 
         # TODO: add more loss
         supported_loss_type = ["celoss", "l2loss", "l1loss", "dmlloss"]
@@ -157,6 +163,18 @@ class DistillationLoss(nn.Layer):
 
         if self.with_student_ctc_loss:
             self.ctc_loss_func = CTCLoss()
+
+        # build backbone loss to supervise the 
+        if self.with_backbone_loss:
+            assert self.backbone_loss_type in ["l1loss", "l2loss"]
+            if self.backbone_loss_type == "l1loss":
+                self.backbone_loss_func = nn.L1Loss(reduction="mean")
+            elif self.backbone_loss_type == "l2loss":
+                self.backbone_loss_func = nn.MSELoss(reduction="mean")
+            else:
+                print("not supported backbone_loss_type: {}".format(
+                    self.backbone_loss_type))
+                exit()
 
     def __call__(self, predicts, batch):
         teacher_out = predicts["teacher_out"]
@@ -194,7 +212,6 @@ class DistillationLoss(nn.Layer):
         else:
             assert False, "not supported loss type!"
 
-        # data is split in 4 parts
         if self.with_inclass_loss:
             cost = self.inclass_loss_func(student_out["head_out"], batch)
             loss_dict["inclass_{}".format(self.inclass_loss_type)] = cost
@@ -208,6 +225,12 @@ class DistillationLoss(nn.Layer):
             teacher_ctc_loss = self.ctc_loss_func(
                 teacher_out, batch)["loss"] * self.ctc_loss_ratio
             loss_dict["teacher_ctcloss"] = teacher_ctc_loss
+
+        if self.with_backbone_loss:
+            teacher_backbone = predicts["teacher_out"]["backbone_out"]
+            student_backbone = predicts["student_out"]["backbone_out"]
+            loss_dict["backbone_loss"] = self.backbone_loss_func(
+                student_backbone, teacher_backbone) * self.backbone_loss_ratio
 
         loss_dict["loss"] = paddle.add_n(list(loss_dict.values()))
         return loss_dict
