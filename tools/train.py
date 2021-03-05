@@ -73,7 +73,12 @@ def main(config, device, logger, vdl_writer):
                     'out_channels'] = char_num
             config['Architecture']["Student"]["Head"]['out_channels'] = char_num
         else:
-            config['Architecture']["Head"]['out_channels'] = char_num
+            if config['Architecture'].get("use_multi_head", False):
+                for key in config['Architecture']["Head"]:
+                    config['Architecture']["Head"][key][
+                        'out_channels'] = char_num
+            else:
+                config['Architecture']["Head"]['out_channels'] = char_num
     model = build_model(config['Architecture'])
     if config['Global']['distributed']:
         model = paddle.DataParallel(model)

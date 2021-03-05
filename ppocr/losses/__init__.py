@@ -23,6 +23,7 @@ def build_loss(config):
 
     # rec loss
     from .rec_ctc_loss import CTCLoss
+    from .multi_head_loss import MultiHeadLoss
 
     # distillation loss
     from .distillation_loss import DistillationLoss, SelfDistillationLoss, TDecodeCTCLoss
@@ -34,7 +35,7 @@ def build_loss(config):
     support_dict = [
         'DBLoss', 'EASTLoss', 'SASTLoss', 'CTCLoss', 'ClsLoss',
         "DistillationLoss", "SelfDistillationLoss", "TDecodeCTCLoss",
-        "GeneralDistLoss"
+        "GeneralDistLoss", "MultiHeadLoss"
     ]
 
     config = copy.deepcopy(config)
