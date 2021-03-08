@@ -44,7 +44,7 @@ class BaseLossClass(nn.Layer):
         if self.loss_type == "l1loss":
             loss = F.l1_loss(x, y, mode=self.mode)
         elif self.loss_type == "l2loss":
-            loss = F.mse_loss(x, y, mode=self.mode)
+            loss = F.mse_loss(x, y)
         elif self.loss_type == "cossim_loss":
             loss = F.cosine_similarity(x, y, axis=-1)
             loss = eval("paddle.{}(loss)".format(self.mode))
