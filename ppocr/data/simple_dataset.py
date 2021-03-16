@@ -73,6 +73,8 @@ class SimpleDataSet(Dataset):
             substr = data_line.strip("\n").split(self.delimiter)
             file_name = substr[0]
             label = substr[1]
+            if len(substr) >= 3 and substr[2] == "###":
+                label = "###"
             img_path = os.path.join(self.data_dir, file_name)
             data = {'img_path': img_path, 'label': label}
             if not os.path.exists(img_path):

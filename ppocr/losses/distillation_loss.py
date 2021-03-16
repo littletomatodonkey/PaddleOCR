@@ -240,9 +240,10 @@ class SelfDistillationLoss(nn.Layer):
     def __init__(self,
                  num_sections=4,
                  distillation_loss_type="l2loss",
-                 distillation_loss_ratio=0.0,
+                 distillation_loss_ratio=1.0,
                  with_ctc_loss=False,
-                 ctc_loss_ratio=0.0,
+                 ctc_loss_ratio=1.0,
+                 ctc_loss_mode="mean",
                  loss_after_softmax=False,
                  **kwargs):
         super(SelfDistillationLoss, self).__init__()
@@ -252,14 +253,30 @@ class SelfDistillationLoss(nn.Layer):
         self.distillation_loss_ratio = distillation_loss_ratio
         self.distillation_loss_type = distillation_loss_type
         self.loss_after_softmax = loss_after_softmax
+        self.ctc_loss_mode = ctc_loss_mode
 
         if with_ctc_loss:
-            self.ctc_loss_func = CTCLoss(blank=0, reduction='mean')
+            self.ctc_loss_func = CTCLoss(blank=0, reduction=self.ctc_loss_mode)
 
         self.in_class_loss_func = InClassLoss(
             num_sections=num_sections,
             loss_ratio=distillation_loss_ratio,
             loss_type=distillation_loss_type)
+
+    def calc_ignore_flag(self, batch):
+        '''
+            batch[0]: predicts, bs x 25 x 6625
+            batch[1]: gt_label, bs x 25
+            batch[2]: gt_len,   bs x 1
+        '''
+        gt_label = batch[1].numpy()
+        ignore_arr = np.zeros_like(batch[1].numpy())
+        # fake label is ###
+        ignore_arr[:, :3] = 5461
+        ignore_flag = np.logical_not(
+            np.alltrue(
+                ignore_arr == gt_label, axis=1)).astype("float32")
+        return ignore_flag
 
     def __call__(self, predicts, batch):
         loss_dict = {}
@@ -273,9 +290,12 @@ class SelfDistillationLoss(nn.Layer):
 
         # ctc loss
         if self.with_ctc_loss:
-            ctc_loss = self.ctc_loss_func(predicts,
-                                          batch)["loss"] * self.ctc_loss_ratio
-            loss_dict["ctcloss"] = ctc_loss
+            # 
+            ctc_loss = self.ctc_loss_func(predicts, batch)["loss"]
+            ignore_flag = self.calc_ignore_flag(batch)
+            ctc_loss = ctc_loss * paddle.to_tensor(ignore_flag)
+            ctc_loss = ctc_loss.mean()
+            loss_dict["ctcloss"] = ctc_loss * self.ctc_loss_ratio
 
         loss_dict["loss"] = paddle.add_n(list(loss_dict.values()))
         return loss_dict
