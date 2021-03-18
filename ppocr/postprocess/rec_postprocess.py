@@ -130,12 +130,27 @@ class DistillationCTCLabelDecode(CTCLabelDecode):
                  character_dict_path=None,
                  character_type='ch',
                  use_space_char=False,
+                 infer_teacher=False,
                  **kwargs):
         super(DistillationCTCLabelDecode, self).__init__(
             character_dict_path, character_type, use_space_char)
+        self.infer_teacher = infer_teacher
 
     def __call__(self, preds, label=None, *args, **kwargs):
-        pred = preds["student_out"]
+        if self.infer_teacher:
+            key = "teacher_list_out" if "teacher_list_out" in preds else "teacher_out"
+            pred = preds[key]
+            if isinstance(pred, dict):
+                pred = pred["head_out"]
+            elif isinstance(pred, list):
+                ps = []
+                for p in pred:
+                    ps.append(p["head_out"])
+                pred = paddle.add_n(ps) / len(ps)
+            else:
+                assert False, "pred type({}) wrong...".format(type(pred))
+        else:
+            pred = preds["student_out"]
         return super().__call__(pred, label=label, *args, **kwargs)
 
     def add_special_char(self, dict_character):
