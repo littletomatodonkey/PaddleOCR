@@ -108,22 +108,26 @@ class InClassLoss(nn.Layer):
 
 
 class DistillationLoss(nn.Layer):
-    def __init__(self,
-                 loss_type="celoss",
-                 with_student_ctc_loss=False,
-                 ctc_loss_ratio=0.5,
-                 distillation_loss_ratio=0.5,
-                 with_inclass_loss=False,
-                 inclass_loss_type="l2loss",
-                 inclass_loss_ratio=1.0,
-                 inclass_num_sections=4,
-                 blank_weight=None,
-                 with_teacher_ctc_loss=False,
-                 dml_loss_ratio=0.5,
-                 with_backbone_loss=False,
-                 backbone_loss_type="l2loss",
-                 backbone_loss_ratio=0.5,
-                 **kwargs):
+    def __init__(
+            self,
+            loss_type="celoss",
+            with_student_ctc_loss=False,
+            ctc_loss_ratio=0.5,
+            distillation_loss_ratio=0.5,
+            with_inclass_loss=False,
+            inclass_loss_type="l2loss",
+            inclass_loss_ratio=1.0,
+            inclass_num_sections=4,
+            blank_weight=None,
+            with_teacher_ctc_loss=False,
+            dml_loss_ratio=0.5,
+            # if set as true, (t+s)/2 will be used for dml
+            use_combined_ts_loss=False,
+            combined_ts_loss_ratio=0.5,
+            with_backbone_loss=False,
+            backbone_loss_type="l2loss",
+            backbone_loss_ratio=0.5,
+            **kwargs):
         super(DistillationLoss, self).__init__()
         self.loss_type = loss_type
         self.with_student_ctc_loss = with_student_ctc_loss
@@ -141,6 +145,9 @@ class DistillationLoss(nn.Layer):
         self.with_teacher_ctc_loss = with_teacher_ctc_loss
         self.use_dml_loss = self.loss_type == "dmlloss"
         self.dml_loss_ratio = dml_loss_ratio
+        # when using dml loss, combined sup performs better
+        self.use_combined_ts_loss = use_combined_ts_loss
+        self.combined_ts_loss_ratio = combined_ts_loss_ratio
 
         if self.use_dml_loss:
             self.dml_loss_func = DML(self.dml_loss_ratio)
@@ -209,6 +216,18 @@ class DistillationLoss(nn.Layer):
             cost2 = self.dml_loss_func(teacher_out, student_out)
             cost = (cost1 + cost2) / 2.0
             loss_dict["dmlloss"] = cost
+
+            if self.use_combined_ts_sup:
+                combined_feat = (
+                    student_out["head_out"] + teacher_out["head_out"]) / 2
+                cost3 = self.dml_loss_func(student_out, combined_feat)
+                cost4 = self.dml_loss_func(combined_feat, student_out)
+                cost5 = self.dml_loss_func(teacher_out, combined_feat)
+                cost6 = self.dml_loss_func(combined_feat, teacher_out)
+                # avg if half of the mormal dml loss
+                cost = cost + (cost3 + cost4 + cost5 + cost6
+                               ) / 4.0 * self.combined_ts_loss_ratio
+
         else:
             assert False, "not supported loss type!"
 

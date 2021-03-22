@@ -56,7 +56,9 @@ class GeneralDistModel(nn.Layer):
             print(teacher_config)
             teacher_config["model_type"] = config["model_type"]
             teacher_config["algorithm"] = config["algorithm"]
-            self.teacher.append(BaseModel(teacher_config))
+            # add sublayer is needed to update model
+            self.teacher.append(
+                self.add_sublayer(key, BaseModel(teacher_config)))
 
         config["Student"]["model_type"] = config["model_type"]
         config["Student"]["algorithm"] = config["algorithm"]

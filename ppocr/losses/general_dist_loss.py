@@ -25,8 +25,26 @@ import paddle.nn.functional as F
 from .rec_ctc_loss import CTCLoss
 from .dml import DML
 from .distillation_loss import InClassLoss
+from .distillation_loss import jsdiv_me
 
-# more losses can refer to https://github.com/AberHu/Knowledge-Distillation-Zoo
+
+def dml_me_loss(out1, out2):
+    if isinstance(out1, dict):
+        out1 = out1["head_out"]
+    if isinstance(out2, dict):
+        out2 = out2["head_out"]
+
+    soft_out1 = F.softmax(out1, axis=-1)
+    log_soft_out1 = paddle.log(soft_out1)
+
+    soft_out2 = F.softmax(out2, axis=-1)
+    log_soft_out2 = paddle.log(soft_out2)
+
+    loss = (F.kl_div(
+        log_soft_out1, soft_out2, reduction='batchmean') + F.kl_div(
+            log_soft_out2, soft_out1, reduction='batchmean')) / 2.0
+
+    return loss
 
 
 class BaseLossClass(nn.Layer):
@@ -35,6 +53,8 @@ class BaseLossClass(nn.Layer):
         self.loss_type = loss_type
         self.mode = mode
         self.ratio = ratio
+        if self.loss_type == "dmlloss":
+            self.dml_loss_func = DML(1.0)
 
     def __call__(self, x, y):
         '''
@@ -56,6 +76,10 @@ class BaseLossClass(nn.Layer):
             loss1 = self.dml_loss_func(x, y)
             loss2 = self.dml_loss_func(y, x)
             loss = (loss1 + loss2) / 2.0
+        elif self.loss_type == "jsdiv_me_loss":
+            loss = jsdiv_me(x, y)
+        elif self.loss_type == "dml_me_loss":
+            loss = dml_me_loss(x, y)
         loss = loss * self.ratio
         return loss
 
@@ -82,6 +106,15 @@ class GeneralDistLoss(nn.Layer):
             use_backbone_loss=False,
             backbone_loss_type="l2loss",
             backbone_loss_ratio=1.0,
+
+            # whether to use teacher loss
+            # if freeze_teacher is False, we should calc teacher loss between themselves
+            freeze_teacher=True,
+
+            # if is true, model merge will be used for supervision
+            # recommanded in DML
+            use_model_merge_dist_loss=False,
+
             # other configs
     ):
         super(GeneralDistLoss, self).__init__()
@@ -90,6 +123,8 @@ class GeneralDistLoss(nn.Layer):
         self.use_teacher_gt_loss = use_teacher_gt_loss
         self.use_inclass_loss = use_inclass_loss
         self.use_backbone_loss = use_backbone_loss
+        self.freeze_teacher = freeze_teacher
+        self.use_model_merge_dist_loss = use_model_merge_dist_loss
 
         if self.use_dist_loss:
             self.distillation_loss_func = BaseLossClass(
@@ -120,14 +155,32 @@ class GeneralDistLoss(nn.Layer):
                     idx)] = self.distillation_loss_func(student_out["head_out"],
                                                         teacher_out["head_out"])
 
+            # commonly used in DML loss, cause they are learned from scratch
+            if not self.freeze_teacher:
+                for row in range(len(teacher_list_out)):
+                    for col in range(row + 1, len(teacher_list_out)):
+                        loss_dict["dist_in_teacher_loss_{}_{}".format(
+                            row, col)] = self.distillation_loss_func(
+                                teacher_list_out[row]["head_out"],
+                                teacher_list_out[col]["head_out"])
+
+            if self.use_model_merge_dist_loss:
+                res_list = [
+                    teacher_out["head_out"] for teacher_out in teacher_list_out
+                ] + [student_out["head_out"]]
+                merge_result = paddle.add_n(res_list) / len(res_list)
+                loss_dict["model_merge_dist_loss_{}".format(
+                    idx)] = self.distillation_loss_func(student_out["head_out"],
+                                                        merge_result)
+
         if self.use_student_gt_loss:
             loss_dict["student_gt_loss"] = self.ctc_loss_func(
                 student_out["head_out"], batch)["loss"]
 
         if self.use_teacher_gt_loss:
-            for idx, teacher_out in enumerate(teacher_list_out):
+            for idx, teacher_out, in enumerate(teacher_list_out):
                 loss_dict["teacher_gt_loss_{}".format(
-                    idx)] = self.ctc_loss_func(student_out["head_out"],
+                    idx)] = self.ctc_loss_func(teacher_out["head_out"],
                                                batch)["loss"]
 
         if self.use_backbone_loss:
@@ -136,9 +189,24 @@ class GeneralDistLoss(nn.Layer):
                     idx)] = self.backbone_loss_func(student_out["backbone_out"],
                                                     teacher_out["backbone_out"])
 
+            # commonly used in DML loss, cause they are learned from scratch
+            if not self.freeze_teacher:
+                for row in range(len(teacher_list_out)):
+                    for col in range(row + 1, len(teacher_list_out)):
+                        loss_dict["backbone_in_teacher_loss_{}_{}".format(
+                            row, col)] = self.backbone_loss_func(
+                                teacher_list_out[row]["head_out"],
+                                teacher_list_out[col]["head_out"])
+
         if self.use_inclass_loss:
-            loss_dict["inclass_loss"] = self.inclass_loss_func(
+            loss_dict["student_inclass_loss"] = self.inclass_loss_func(
                 student_out["head_out"], batch)
+
+            if not self.freeze_teacher:
+                for idx, teacher_out, in enumerate(teacher_list_out):
+                    loss_dict["teacher_inclass_loss_{}".format(
+                        idx)] = self.inclass_loss_func(teacher_out["head_out"],
+                                                       batch)
 
         loss_dict["loss"] = paddle.add_n(list(loss_dict.values()))
         return loss_dict
