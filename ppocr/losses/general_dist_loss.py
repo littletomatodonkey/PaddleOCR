@@ -107,6 +107,11 @@ class GeneralDistLoss(nn.Layer):
             backbone_loss_type="l2loss",
             backbone_loss_ratio=1.0,
 
+            # whether to use neck loss
+            use_neck_loss=False,
+            neck_loss_type="l2loss",
+            neck_loss_ratio=1.0,
+
             # whether to use teacher loss
             # if freeze_teacher is False, we should calc teacher loss between themselves
             freeze_teacher=True,
@@ -122,6 +127,7 @@ class GeneralDistLoss(nn.Layer):
         self.use_student_gt_loss = use_student_gt_loss
         self.use_teacher_gt_loss = use_teacher_gt_loss
         self.use_inclass_loss = use_inclass_loss
+        self.use_neck_loss = use_neck_loss
         self.use_backbone_loss = use_backbone_loss
         self.freeze_teacher = freeze_teacher
         self.use_model_merge_dist_loss = use_model_merge_dist_loss
@@ -142,6 +148,10 @@ class GeneralDistLoss(nn.Layer):
         if self.use_backbone_loss:
             self.backbone_loss_func = BaseLossClass(
                 loss_type=backbone_loss_type, ratio=backbone_loss_ratio)
+
+        if self.use_neck_loss:
+            self.neck_loss_func = BaseLossClass(
+                loss_type=neck_loss_type, ratio=neck_loss_ratio)
 
     def __call__(self, predicts, batch):
         teacher_list_out = predicts["teacher_list_out"]
@@ -195,8 +205,21 @@ class GeneralDistLoss(nn.Layer):
                     for col in range(row + 1, len(teacher_list_out)):
                         loss_dict["backbone_in_teacher_loss_{}_{}".format(
                             row, col)] = self.backbone_loss_func(
-                                teacher_list_out[row]["head_out"],
-                                teacher_list_out[col]["head_out"])
+                                teacher_list_out[row]["backbone_out"],
+                                teacher_list_out[col]["backbone_out"])
+
+        if self.use_neck_loss:
+            for idx, teacher_out in enumerate(teacher_list_out):
+                loss_dict["neck_loss_{}".format(idx)] = self.backbone_loss_func(
+                    student_out["neck_out"], teacher_out["neck_out"])
+            # commonly used in DML loss, cause they are learned from scratch
+            if not self.freeze_teacher:
+                for row in range(len(teacher_list_out)):
+                    for col in range(row + 1, len(teacher_list_out)):
+                        loss_dict["neck_in_teacher_loss_{}_{}".format(
+                            row, col)] = self.backbone_loss_func(
+                                teacher_list_out[row]["neck_out"],
+                                teacher_list_out[col]["neck_out"])
 
         if self.use_inclass_loss:
             loss_dict["student_inclass_loss"] = self.inclass_loss_func(

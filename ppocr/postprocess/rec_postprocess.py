@@ -137,6 +137,8 @@ class DistillationCTCLabelDecode(CTCLabelDecode):
         self.infer_teacher = infer_teacher
 
     def __call__(self, preds, label=None, *args, **kwargs):
+        # some exp when in 
+        # pred = (preds["student_out"]["head_out"] + preds["teacher_out"]["head_out"]) / 2.0
         if self.infer_teacher:
             key = "teacher_list_out" if "teacher_list_out" in preds else "teacher_out"
             pred = preds[key]
