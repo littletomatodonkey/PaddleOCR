@@ -131,15 +131,25 @@ class DistillationCTCLabelDecode(CTCLabelDecode):
                  character_type='ch',
                  use_space_char=False,
                  infer_teacher=False,
+                 infer_all_res=False,
                  **kwargs):
         super(DistillationCTCLabelDecode, self).__init__(
             character_dict_path, character_type, use_space_char)
         self.infer_teacher = infer_teacher
+        self.infer_all_res = infer_all_res
 
     def __call__(self, preds, label=None, *args, **kwargs):
         # some exp when in 
-        # pred = (preds["student_out"]["head_out"] + preds["teacher_out"]["head_out"]) / 2.0
-        if self.infer_teacher:
+        if self.infer_all_res:
+            if "teacher_out" in preds:
+                pred = (preds["student_out"]["head_out"] +
+                        preds["teacher_out"]["head_out"]) / 2.0
+            elif "teacher_list_out" in preds:
+                res_list = [preds["student_out"]["head_out"]] + [
+                    t["head_out"] for t in preds["teacher_list_out"]
+                ]
+                pred = paddle.add_n(res_list) / len(res_list)
+        elif self.infer_teacher:
             key = "teacher_list_out" if "teacher_list_out" in preds else "teacher_out"
             pred = preds[key]
             if isinstance(pred, dict):
