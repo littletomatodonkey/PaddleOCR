@@ -174,7 +174,7 @@ class BasicBlock(nn.Layer):
 
 
 class ResNet(nn.Layer):
-    def __init__(self, in_channels=3, layers=50, **kwargs):
+    def __init__(self, in_channels=3, layers=50, prefix_name="", **kwargs):
         super(ResNet, self).__init__()
 
         self.layers = layers
@@ -203,21 +203,21 @@ class ResNet(nn.Layer):
             kernel_size=3,
             stride=1,
             act='relu',
-            name="conv1_1")
+            name=prefix_name + "conv1_1")
         self.conv1_2 = ConvBNLayer(
             in_channels=32,
             out_channels=32,
             kernel_size=3,
             stride=1,
             act='relu',
-            name="conv1_2")
+            name=prefix_name + "conv1_2")
         self.conv1_3 = ConvBNLayer(
             in_channels=32,
             out_channels=64,
             kernel_size=3,
             stride=1,
             act='relu',
-            name="conv1_3")
+            name=prefix_name + "conv1_3")
         self.pool2d_max = nn.MaxPool2D(kernel_size=3, stride=2, padding=1)
 
         self.block_list = []
@@ -232,13 +232,14 @@ class ResNet(nn.Layer):
                             conv_name = "res" + str(block + 2) + "b" + str(i)
                     else:
                         conv_name = "res" + str(block + 2) + chr(97 + i)
+                    conv_name = prefix_name + conv_name
 
                     if i == 0 and block != 0:
                         stride = (2, 1)
                     else:
                         stride = (1, 1)
                     bottleneck_block = self.add_sublayer(
-                        'bb_%d_%d' % (block, i),
+                        prefix_name + 'bb_%d_%d' % (block, i),
                         BottleneckBlock(
                             in_channels=num_channels[block]
                             if i == 0 else num_filters[block] * 4,
@@ -254,14 +255,15 @@ class ResNet(nn.Layer):
             for block in range(len(depth)):
                 shortcut = False
                 for i in range(depth[block]):
-                    conv_name = "res" + str(block + 2) + chr(97 + i)
+                    conv_name = prefix_name + "res" + str(block + 2) + chr(97 +
+                                                                           i)
                     if i == 0 and block != 0:
                         stride = (2, 1)
                     else:
                         stride = (1, 1)
 
                     basic_block = self.add_sublayer(
-                        'bb_%d_%d' % (block, i),
+                        prefix_name + 'bb_%d_%d' % (block, i),
                         BasicBlock(
                             in_channels=num_channels[block]
                             if i == 0 else num_filters[block],
