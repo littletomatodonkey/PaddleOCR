@@ -120,6 +120,9 @@ class GeneralDistLoss(nn.Layer):
             # recommanded in DML
             use_model_merge_dist_loss=False,
 
+            # with unlabeled data (gt label is ###)
+            use_unlabeled_data=False,
+
             # other configs
     ):
         super(GeneralDistLoss, self).__init__()
@@ -131,6 +134,7 @@ class GeneralDistLoss(nn.Layer):
         self.use_backbone_loss = use_backbone_loss
         self.freeze_teacher = freeze_teacher
         self.use_model_merge_dist_loss = use_model_merge_dist_loss
+        self.use_unlabeled_data = use_unlabeled_data
 
         if self.use_dist_loss:
             self.distillation_loss_func = BaseLossClass(
@@ -138,6 +142,7 @@ class GeneralDistLoss(nn.Layer):
 
         # used for either student or teacher gt
         self.ctc_loss_func = CTCLoss()
+        self.ctc_loss_func_raw = CTCLoss(reduction="none")
 
         if self.use_inclass_loss:
             self.inclass_loss_func = InClassLoss(
@@ -152,6 +157,32 @@ class GeneralDistLoss(nn.Layer):
         if self.use_neck_loss:
             self.neck_loss_func = BaseLossClass(
                 loss_type=neck_loss_type, ratio=neck_loss_ratio)
+
+    def calc_ignore_flag(self, batch):
+        '''
+            batch[0]: predicts, bs x 25 x 6625
+            batch[1]: gt_label, bs x 25
+            batch[2]: gt_len,   bs x 1
+        '''
+        gt_label = batch[1].numpy()
+        ignore_arr = np.zeros_like(batch[1].numpy())
+        # fake label is ###
+        ignore_arr[:, :3] = 5461
+        ignore_flag = np.logical_not(
+            np.alltrue(
+                ignore_arr == gt_label, axis=1)).astype("float32")
+        return ignore_flag
+
+    def calc_ctc_loss(self, predict, batch):
+        if self.use_unlabeled_data:
+            ctc_loss = self.ctc_loss_func_raw(predict["head_out"],
+                                              batch)["loss"]
+            ignore_flag = self.calc_ignore_flag(batch)
+            ctc_loss = ctc_loss * paddle.to_tensor(ignore_flag)
+            ctc_loss = ctc_loss.mean()
+        else:
+            ctc_loss = self.ctc_loss_func(predict["head_out"], batch)["loss"]
+        return ctc_loss
 
     def __call__(self, predicts, batch):
         teacher_list_out = predicts["teacher_list_out"]
@@ -184,14 +215,13 @@ class GeneralDistLoss(nn.Layer):
                                                         merge_result)
 
         if self.use_student_gt_loss:
-            loss_dict["student_gt_loss"] = self.ctc_loss_func(
-                student_out["head_out"], batch)["loss"]
+            loss_dict["student_gt_loss"] = self.calc_ctc_loss(student_out,
+                                                              batch)
 
         if self.use_teacher_gt_loss:
             for idx, teacher_out, in enumerate(teacher_list_out):
                 loss_dict["teacher_gt_loss_{}".format(
-                    idx)] = self.ctc_loss_func(teacher_out["head_out"],
-                                               batch)["loss"]
+                    idx)] = self.calc_ctc_loss(teacher_out, batch)
 
         if self.use_backbone_loss:
             for idx, teacher_out in enumerate(teacher_list_out):

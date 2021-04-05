@@ -53,7 +53,6 @@ class GeneralDistModel(nn.Layer):
         self.teacher = []
         for key in config["Teacher"]:
             teacher_config = config["Teacher"][key]
-            print(teacher_config)
             teacher_config["model_type"] = config["model_type"]
             teacher_config["algorithm"] = config["algorithm"]
             # add sublayer is needed to update model
