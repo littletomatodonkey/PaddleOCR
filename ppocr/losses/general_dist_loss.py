@@ -122,6 +122,8 @@ class GeneralDistLoss(nn.Layer):
 
             # with unlabeled data (gt label is ###)
             use_unlabeled_data=False,
+            # data normalize is used when the unlabeled data contains
+            normalize_ctc_loss=False,
 
             # other configs
     ):
@@ -135,6 +137,7 @@ class GeneralDistLoss(nn.Layer):
         self.freeze_teacher = freeze_teacher
         self.use_model_merge_dist_loss = use_model_merge_dist_loss
         self.use_unlabeled_data = use_unlabeled_data
+        self.normalize_ctc_loss = normalize_ctc_loss
 
         if self.use_dist_loss:
             self.distillation_loss_func = BaseLossClass(
@@ -179,7 +182,14 @@ class GeneralDistLoss(nn.Layer):
                                               batch)["loss"]
             ignore_flag = self.calc_ignore_flag(batch)
             ctc_loss = ctc_loss * paddle.to_tensor(ignore_flag)
-            ctc_loss = ctc_loss.mean()
+            ctc_loss = ctc_loss.sum()
+            # actuall batch that the ctc loss can be calc
+            valid_bs = np.sum(ignore_flag)
+            if self.normalize_ctc_loss and valid_bs != 0:
+                ctc_loss = ctc_loss / valid_bs
+            else:
+                ctc_loss = ctc_loss / ctc_loss.shape[0]
+
         else:
             ctc_loss = self.ctc_loss_func(predict["head_out"], batch)["loss"]
         return ctc_loss
