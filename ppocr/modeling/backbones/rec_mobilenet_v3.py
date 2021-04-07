@@ -29,6 +29,7 @@ class MobileNetV3(nn.Layer):
                  last_act="hard_swish",
                  prefix_name="",
                  embedding_size=None,
+                 pool_kernel_size=2,
                  **kwargs):
         super(MobileNetV3, self).__init__()
         if small_stride is None:
@@ -146,7 +147,14 @@ class MobileNetV3(nn.Layer):
                 name=prefix_name + 'conv_last_embedding')
             self.out_channels = embedding_size
 
-        self.pool = nn.MaxPool2D(kernel_size=2, stride=2, padding=0)
+        if pool_kernel_size == 2:
+            self.pool = nn.MaxPool2D(kernel_size=2, stride=2, padding=0)
+        else:
+            # improved shape
+            self.pool = nn.AvgPool2D(
+                kernel_size=[2, pool_kernel_size],
+                stride=[2, pool_kernel_size],
+                padding=0)
 
     def forward(self, x):
         x = self.conv1(x)

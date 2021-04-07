@@ -46,8 +46,23 @@ def main():
 
     # build model
     if hasattr(post_process_class, 'character'):
-        config['Architecture']["Head"]['out_channels'] = len(
-            getattr(post_process_class, 'character'))
+        char_num = len(getattr(post_process_class, 'character'))
+        if config['Architecture'].get("use_distillation", False):
+            if config['Architecture'].get("use_multi_teacher", False):
+                for key in config['Architecture']["Teacher"]:
+                    config['Architecture']["Teacher"][key]["Head"][
+                        'out_channels'] = char_num
+            else:
+                config['Architecture']["Teacher"]["Head"][
+                    'out_channels'] = char_num
+            config['Architecture']["Student"]["Head"]['out_channels'] = char_num
+        else:
+            if config['Architecture'].get("use_multi_head", False):
+                for key in config['Architecture']["Head"]:
+                    config['Architecture']["Head"][key][
+                        'out_channels'] = char_num
+            else:
+                config['Architecture']["Head"]['out_channels'] = char_num
 
     model = build_model(config['Architecture'])
 
