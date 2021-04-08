@@ -29,15 +29,39 @@ from .distillation_loss import jsdiv_me
 
 
 def dml_me_loss(out1, out2):
-    if isinstance(out1, dict):
-        out1 = out1["head_out"]
-    if isinstance(out2, dict):
-        out2 = out2["head_out"]
-
+    '''
+    for backbone or head out
+    backbone: bs x ch(288) x 1 x ts(80)
+    head    : bs x ts(80) x num_classes
+    '''
+    # if isinstance(out1, dict):
+    #     out1 = out1["head_out"]
+    # if isinstance(out2, dict):
+    #     out2 = out2["head_out"]
     soft_out1 = F.softmax(out1, axis=-1)
     log_soft_out1 = paddle.log(soft_out1)
 
     soft_out2 = F.softmax(out2, axis=-1)
+    log_soft_out2 = paddle.log(soft_out2)
+
+    loss = (F.kl_div(
+        log_soft_out1, soft_out2, reduction='batchmean') + F.kl_div(
+            log_soft_out2, soft_out1, reduction='batchmean')) / 2.0
+
+    return loss
+
+
+def dml_sigmoid_loss(out1, out2):
+    '''
+    for backbone or head out
+    backbone: bs x ch(288) x 1 x ts(80)
+    head    : bs x ts(80) x num_classes
+    consider of multiple crests
+    '''
+    soft_out1 = F.sigmoid(out1)
+    log_soft_out1 = paddle.log(soft_out1)
+
+    soft_out2 = F.sigmoid(out2)
     log_soft_out2 = paddle.log(soft_out2)
 
     loss = (F.kl_div(
@@ -80,6 +104,8 @@ class BaseLossClass(nn.Layer):
             loss = jsdiv_me(x, y)
         elif self.loss_type == "dml_me_loss":
             loss = dml_me_loss(x, y)
+        elif self.loss_type == "dml_sigmoid_loss":
+            loss = dml_sigmoid_loss(x, y)
         loss = loss * self.ratio
         return loss
 
