@@ -30,6 +30,7 @@ import math
 import cv2
 import numpy as np
 import random
+import sys
 
 from .text_image_aug import tia_perspective, tia_stretch, tia_distort
 
@@ -73,6 +74,76 @@ class RecResizeImg(object):
             norm_img = resize_norm_img_chinese(img, self.image_shape)
         else:
             norm_img = resize_norm_img(img, self.image_shape)
+        data['image'] = norm_img
+        return data
+
+
+class RecResizeImgRandAR(object):
+    '''
+    random resize image using different
+    '''
+
+    def __init__(self,
+                 image_shape,
+                 infer_mode=False,
+                 character_type='ch',
+                 min_short_size=8,
+                 lower_as_ratio=0.95,
+                 upper_as_ratio=1.05,
+                 **kwargs):
+        self.image_shape = image_shape
+        self.infer_mode = infer_mode
+        self.character_type = character_type
+        self.min_short_size = min_short_size
+        self.lower_as_ratio = lower_as_ratio
+        self.upper_as_ratio = upper_as_ratio
+
+    def resize_img_random_aspect_ratio(self, img, label_length):
+        image_shape = self.image_shape
+        imgC, imgH, imgW = image_shape
+        h = img.shape[0]
+        w = img.shape[1]
+        temp_ratio = w / float(h)
+        resized_w = int(math.ceil(imgH * temp_ratio))
+
+        len_per_word = 1.0 * resized_w / label_length
+
+        if h > w and label_length >= 2:
+            print("image h: {}, w: {}, label length: {}, pass it...".format(
+                h, w, label_length))
+            sys.stdout.flush()
+            return None
+
+        ratio = temp_ratio
+        if len_per_word >= self.min_short_size:
+            ratio = temp_ratio * (random.random() *
+                                  (self.upper_as_ratio - self.lower_as_ratio
+                                   ) + self.lower_as_ratio)
+
+        if math.ceil(imgH * ratio) > imgW:
+            resized_w = imgW
+        else:
+            resized_w = int(math.ceil(imgH * ratio))
+
+        resized_image = cv2.resize(img, (resized_w, imgH))
+        resized_image = resized_image.astype('float32')
+        if image_shape[0] == 1:
+            resized_image = resized_image / 255
+            resized_image = resized_image[np.newaxis, :]
+        else:
+            resized_image = resized_image.transpose((2, 0, 1)) / 255
+        resized_image -= 0.5
+        resized_image /= 0.5
+        padding_im = np.zeros((imgC, imgH, imgW), dtype=np.float32)
+        padding_im[:, :, 0:resized_w] = resized_image
+        return padding_im
+
+    def __call__(self, data):
+        img = data['image']
+        label_length = data['length']
+        norm_img = self.resize_img_random_aspect_ratio(img, label_length)
+        if norm_img is None:
+            return None
         data['image'] = norm_img
         return data
 

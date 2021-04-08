@@ -106,6 +106,8 @@ class KeepKeys(object):
         self.keep_keys = keep_keys
 
     def __call__(self, data):
+        if data is None:
+            return data
         data_list = []
         for key in self.keep_keys:
             data_list.append(data[key])

@@ -30,6 +30,8 @@ class SimpleDataSet(Dataset):
 
         self.delimiter = dataset_config.get('delimiter', '\t')
         label_file_list = dataset_config.pop('label_file_list')
+        if isinstance(label_file_list, str):
+            label_file_list = [label_file_list]
         data_source_num = len(label_file_list)
         ratio_list = dataset_config.get("ratio_list", [1.0])
         if isinstance(ratio_list, (float, int)):
@@ -73,6 +75,7 @@ class SimpleDataSet(Dataset):
             substr = data_line.strip("\n").split(self.delimiter)
             file_name = substr[0]
             label = substr[1]
+            # for unlabeled data
             if len(substr) >= 3 and substr[2] == "###":
                 label = "###"
             img_path = os.path.join(self.data_dir, file_name)
