@@ -108,7 +108,8 @@ class RecResizeImgRandAR(object):
 
         len_per_word = 1.0 * resized_w / label_length
 
-        if h > w and label_length >= 2:
+        # if height > width and label lenth >= 3, view it as too hard image
+        if h > w and label_length >= 3:
             print("image h: {}, w: {}, label length: {}, pass it...".format(
                 h, w, label_length))
             sys.stdout.flush()
