@@ -26,6 +26,7 @@ from .rec_ctc_loss import CTCLoss
 from .dml import DML
 from .distillation_loss import InClassLoss
 from .distillation_loss import jsdiv_me
+from .fsp import FSP
 
 
 def dml_me_loss(out1, out2):
@@ -138,6 +139,10 @@ class GeneralDistLoss(nn.Layer):
             neck_loss_type="l2loss",
             neck_loss_ratio=1.0,
 
+            # whether to use fsp in backbone and neack out
+            use_fsp_loss_backbone_neck=False,
+            fsp_loss_backbone_neck_ratio=1.0,
+
             # whether to use teacher loss
             # if freeze_teacher is False, we should calc teacher loss between themselves
             freeze_teacher=True,
@@ -164,6 +169,7 @@ class GeneralDistLoss(nn.Layer):
         self.use_model_merge_dist_loss = use_model_merge_dist_loss
         self.use_unlabeled_data = use_unlabeled_data
         self.normalize_ctc_loss = normalize_ctc_loss
+        self.use_fsp_loss_backbone_neck = use_fsp_loss_backbone_neck
 
         if self.use_dist_loss:
             self.distillation_loss_func = BaseLossClass(
@@ -186,6 +192,10 @@ class GeneralDistLoss(nn.Layer):
         if self.use_neck_loss:
             self.neck_loss_func = BaseLossClass(
                 loss_type=neck_loss_type, ratio=neck_loss_ratio)
+
+        if self.use_fsp_loss_backbone_neck:
+            self.fsp_loss_backbone_neck_func = FSP(
+                loss_ratio=fsp_loss_backbone_neck_ratio)
 
     def calc_ignore_flag(self, batch):
         '''
@@ -223,6 +233,10 @@ class GeneralDistLoss(nn.Layer):
     def __call__(self, predicts, batch):
         teacher_list_out = predicts["teacher_list_out"]
         student_out = predicts["student_out"]
+
+        # for key in student_out:
+        #     print("{}, shape: {}".format(key, student_out[key].shape))
+        # exit()
 
         loss_dict = dict()
 
@@ -296,6 +310,24 @@ class GeneralDistLoss(nn.Layer):
                     loss_dict["teacher_inclass_loss_{}".format(
                         idx)] = self.inclass_loss_func(teacher_out["head_out"],
                                                        batch)
+
+        if self.use_fsp_loss_backbone_neck:
+            for idx, teacher_out, in enumerate(teacher_list_out):
+                # 128 x 288 x 1 x 80
+                fm_t1 = teacher_out["backbone_out"]
+                # 128 x 80 x 96
+                fm_t2 = teacher_out["neck_out"]
+
+                fm_s1 = student_out["backbone_out"]
+                fm_s2 = student_out["neck_out"]
+
+                # 128 x 80 x 96 -> 128 x 96 x 80 -> 128 x 96 x 1 x 80
+                fm_t2 = fm_t2.transpose([0, 2, 1]).unsqueeze(axis=2)
+                fm_s2 = fm_s2.transpose([0, 2, 1]).unsqueeze(axis=2)
+
+                loss_dict["fsp_backbone_neck_loss_{}".format(
+                    idx)] = self.fsp_loss_backbone_neck_func(fm_s1, fm_s2,
+                                                             fm_t1, fm_t2)
 
         loss_dict["loss"] = paddle.add_n(list(loss_dict.values()))
         return loss_dict
