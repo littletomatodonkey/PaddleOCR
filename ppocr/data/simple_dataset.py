@@ -61,7 +61,8 @@ class SimpleDataSet(Dataset):
         if isinstance(file_list, str):
             file_list = [file_list]
         if isinstance(use_dynamic_sampling_list, bool):
-            use_dynamic_sampling_list = [use_dynamic_sampling_list]
+            use_dynamic_sampling_list = [use_dynamic_sampling_list] * len(
+                file_list)
 
         data_lines = []
         for idx, file in enumerate(file_list):

@@ -40,20 +40,51 @@ class CTCHead(nn.Layer):
                  out_channels,
                  fc_decay=0.0004,
                  fc_name="ctc_fc",
+                 mid_channels=None,
                  **kwargs):
         super(CTCHead, self).__init__()
-        weight_attr, bias_attr = get_para_bias_attr(
-            l2_decay=fc_decay, k=in_channels, name=fc_name)
-        self.fc = nn.Linear(
-            in_channels,
-            out_channels,
-            weight_attr=weight_attr,
-            bias_attr=bias_attr,
-            name=fc_name)
+        self.mid_channels = mid_channels
+        if mid_channels is None:
+            weight_attr, bias_attr = get_para_bias_attr(
+                l2_decay=fc_decay, k=in_channels, name=fc_name)
+            self.fc = nn.Linear(
+                in_channels,
+                out_channels,
+                weight_attr=weight_attr,
+                bias_attr=bias_attr,
+                name=fc_name)
+        else:
+            weight_attr1, bias_attr1 = get_para_bias_attr(
+                l2_decay=fc_decay, k=in_channels, name=fc_name + "_1")
+            self.fc1 = nn.Linear(
+                in_channels,
+                mid_channels,
+                weight_attr=weight_attr1,
+                bias_attr=bias_attr1,
+                name=fc_name + "_1")
+
+            weight_attr2, bias_attr2 = get_para_bias_attr(
+                l2_decay=fc_decay, k=mid_channels, name=fc_name + "_2")
+            self.fc2 = nn.Linear(
+                mid_channels,
+                out_channels,
+                weight_attr=weight_attr2,
+                bias_attr=bias_attr2,
+                name=fc_name + "_2")
         self.out_channels = out_channels
 
     def forward(self, x, labels=None):
-        predicts = self.fc(x)
+        if self.mid_channels is None:
+            print("x shape: {}".format(x.shape))
+            predicts = self.fc(x)
+            print("predicts shape: {}".format(predicts.shape))
+        else:
+            print("x shape: {}".format(x.shape))
+            predicts = self.fc1(x)
+            print("y shape: {}".format(predicts.shape))
+            predicts = self.fc2(predicts)
+            print("predicts shape: {}".format(predicts.shape))
+
         if not self.training:
             predicts = F.softmax(predicts, axis=2)
         return predicts
