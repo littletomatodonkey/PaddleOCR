@@ -28,6 +28,7 @@ class SimpleDataSet(Dataset):
         global_config = config['Global']
         dataset_config = config[mode]['dataset']
         loader_config = config[mode]['loader']
+        self.epoch_num = global_config["epoch_num"]
 
         self.delimiter = dataset_config.get('delimiter', '\t')
         label_file_list = dataset_config.pop('label_file_list')
@@ -44,25 +45,40 @@ class SimpleDataSet(Dataset):
         self.data_dir = dataset_config['data_dir']
         self.do_shuffle = loader_config['shuffle']
 
+        use_dynamic_sampling = dataset_config.get('use_dynamic_sampling', False)
+
         self.seed = seed
         logger.info("Initialize indexs of datasets:%s" % label_file_list)
-        self.data_lines = self.get_image_info_list(label_file_list, ratio_list)
+        self.data_lines = self.get_image_info_list(label_file_list, ratio_list,
+                                                   use_dynamic_sampling)
         self.data_idx_order_list = list(range(len(self.data_lines)))
         if self.mode == "train" and self.do_shuffle:
             self.shuffle_data_random()
         self.ops = create_operators(dataset_config['transforms'], global_config)
 
-    def get_image_info_list(self, file_list, ratio_list):
+    def get_image_info_list(self, file_list, ratio_list,
+                            use_dynamic_sampling_list):
         if isinstance(file_list, str):
             file_list = [file_list]
+        if isinstance(use_dynamic_sampling_list, bool):
+            use_dynamic_sampling_list = [use_dynamic_sampling_list]
+
         data_lines = []
         for idx, file in enumerate(file_list):
             with open(file, "rb") as f:
                 lines = f.readlines()
+                ratio = ratio_list[idx]
+                # update ratio 
+                if use_dynamic_sampling_list[idx] and self.seed is not None:
+                    mult = (self.epoch_num - self.seed) / self.epoch_num
+                    mult = min(mult, 1.0)
+                    mult = max(mult, 0.0)
+                    ratio = mult * ratio
+                    print("in epoch {}/{}, file {} ratio is set as: {}".format(
+                        self.seed, self.epoch_num, file, ratio))
                 if self.mode == "train" or ratio_list[idx] < 1.0:
                     random.seed(self.seed)
-                    lines = random.sample(lines,
-                                          round(len(lines) * ratio_list[idx]))
+                    lines = random.sample(lines, round(len(lines) * ratio))
                 data_lines.extend(lines)
         return data_lines
 
