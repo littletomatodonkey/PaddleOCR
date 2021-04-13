@@ -75,15 +75,10 @@ class CTCHead(nn.Layer):
 
     def forward(self, x, labels=None):
         if self.mid_channels is None:
-            print("x shape: {}".format(x.shape))
             predicts = self.fc(x)
-            print("predicts shape: {}".format(predicts.shape))
         else:
-            print("x shape: {}".format(x.shape))
             predicts = self.fc1(x)
-            print("y shape: {}".format(predicts.shape))
             predicts = self.fc2(predicts)
-            print("predicts shape: {}".format(predicts.shape))
 
         if not self.training:
             predicts = F.softmax(predicts, axis=2)
