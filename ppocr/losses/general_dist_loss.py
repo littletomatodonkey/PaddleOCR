@@ -126,6 +126,9 @@ class GeneralDistLoss(nn.Layer):
             teacher_gt_loss_ratio=1.0,
             # inclass loss ratio
             use_inclass_loss=False,
+            # if use_partial_data_for_other_loss is set as true,
+            # just one part of data will be use to calc loss except inclass loss
+            use_partial_data_for_other_loss=False,
             inclass_num_sections=4,
             inclass_loss_type="l2loss",
             inclass_loss_ratio=1.0,
@@ -170,6 +173,8 @@ class GeneralDistLoss(nn.Layer):
         self.use_unlabeled_data = use_unlabeled_data
         self.normalize_ctc_loss = normalize_ctc_loss
         self.use_fsp_loss_backbone_neck = use_fsp_loss_backbone_neck
+        self.use_partial_data_for_other_loss = use_partial_data_for_other_loss
+        self.inclass_num_sections = inclass_num_sections
 
         if self.use_dist_loss:
             self.distillation_loss_func = BaseLossClass(
@@ -230,7 +235,25 @@ class GeneralDistLoss(nn.Layer):
             ctc_loss = self.ctc_loss_func(predict["head_out"], batch)["loss"]
         return ctc_loss
 
-    def __call__(self, predicts, batch):
+    def __call__(self, ori_predicts, ori_batch):
+        # re-generate predicts
+        if self.use_partial_data_for_other_loss:
+            actual_bs = ori_batch[0].shape[0] // self.inclass_num_sections
+            # predicts
+            predicts = {"teacher_list_out": [], "student_out": None}
+            for ori_t_map in ori_predicts["teacher_list_out"]:
+                predicts["teacher_list_out"].append(
+                    {key: ori_t_map[key][:actual_bs]
+                     for key in ori_t_map})
+            predicts["student_out"] = {
+                key: ori_t_map[key][:actual_bs]
+                for key in ori_predicts["student_out"]
+            }
+            batch = [gt[:actual_bs] for gt in ori_batch]
+        else:
+            predicts = ori_predicts
+            batch = ori_batch
+
         teacher_list_out = predicts["teacher_list_out"]
         student_out = predicts["student_out"]
 
@@ -301,15 +324,17 @@ class GeneralDistLoss(nn.Layer):
                                 teacher_list_out[row]["neck_out"],
                                 teacher_list_out[col]["neck_out"])
 
+        # for inclass loss, loss should be computed for the total batch
         if self.use_inclass_loss:
             loss_dict["student_inclass_loss"] = self.inclass_loss_func(
-                student_out["head_out"], batch)
+                ori_predicts["student_out"]["head_out"], ori_batch)
 
             if not self.freeze_teacher:
-                for idx, teacher_out, in enumerate(teacher_list_out):
+                for idx, teacher_out, in enumerate(ori_predicts[
+                        "teacher_list_out"]):
                     loss_dict["teacher_inclass_loss_{}".format(
                         idx)] = self.inclass_loss_func(teacher_out["head_out"],
-                                                       batch)
+                                                       ori_batch)
 
         if self.use_fsp_loss_backbone_neck:
             for idx, teacher_out, in enumerate(teacher_list_out):
