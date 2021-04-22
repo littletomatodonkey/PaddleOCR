@@ -246,7 +246,7 @@ class GeneralDistLoss(nn.Layer):
                     {key: ori_t_map[key][:actual_bs]
                      for key in ori_t_map})
             predicts["student_out"] = {
-                key: ori_t_map[key][:actual_bs]
+                key: ori_predicts["student_out"][:actual_bs]
                 for key in ori_predicts["student_out"]
             }
             batch = [gt[:actual_bs] for gt in ori_batch]
