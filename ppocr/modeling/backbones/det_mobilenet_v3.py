@@ -21,6 +21,8 @@ from paddle import nn
 import paddle.nn.functional as F
 from paddle import ParamAttr
 
+from .acon import MetaAconC
+
 __all__ = ['MobileNetV3']
 
 
@@ -186,6 +188,9 @@ class ConvBNLayer(nn.Layer):
             moving_mean_name=name + "_bn_mean",
             moving_variance_name=name + "_bn_variance")
 
+        if self.if_act and self.act == "meta_acon":
+            self.meta_acon_func = MetaAconC(out_channels)
+
     def forward(self, x):
         x = self.conv(x)
         x = self.bn(x)
@@ -197,6 +202,8 @@ class ConvBNLayer(nn.Layer):
                     x = F.activation.hard_swish(x)
                 else:
                     x = F.activation.hardswish(x)
+            elif self.act == "meta_acon":
+                x = self.meta_acon_func(x)
             else:
                 print("The activation function is selected incorrectly.")
                 exit()

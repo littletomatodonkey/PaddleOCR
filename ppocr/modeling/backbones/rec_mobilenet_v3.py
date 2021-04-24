@@ -82,6 +82,22 @@ class MobileNetV3(nn.Layer):
                 [5, 576, 96, True, 'hard_swish', 1],
             ]
             cls_ch_squeeze = 576
+        elif model_name == "small_acon":
+            cfg = [
+                # k, exp, c,  se,     nl,  s,
+                [3, 16, 16, True, 'relu', (small_stride[0], 1)],
+                [3, 72, 24, False, 'relu', (small_stride[1], 1)],
+                [3, 88, 24, False, 'relu', 1],
+                [5, 96, 40, True, 'meta_acon', (small_stride[2], 1)],
+                [5, 240, 40, True, 'meta_acon', 1],
+                [5, 240, 40, True, 'meta_acon', 1],
+                [5, 120, 48, True, 'meta_acon', 1],
+                [5, 144, 48, True, 'meta_acon', 1],
+                [5, 288, 96, True, 'meta_acon', (small_stride[3], 1)],
+                [5, 576, 96, True, 'meta_acon', 1],
+                [5, 576, 96, True, 'meta_acon', 1],
+            ]
+            cls_ch_squeeze = 576
         else:
             raise NotImplementedError("mode[" + model_name +
                                       "_model] is not implemented!")
