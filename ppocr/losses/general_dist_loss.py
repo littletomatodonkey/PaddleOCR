@@ -298,18 +298,34 @@ class GeneralDistLoss(nn.Layer):
 
         if self.use_backbone_loss:
             for idx, teacher_out in enumerate(teacher_list_out):
-                loss_dict["backbone_loss_{}".format(
-                    idx)] = self.backbone_loss_func(student_out["backbone_out"],
-                                                    teacher_out["backbone_out"])
+                if isinstance(student_out["backbone_out"], dict):
+                    for key in student_out["backbone_out"]:
+                        loss_dict["backbone_{}_loss_{}".format(
+                            key, idx)] = self.backbone_loss_func(
+                                student_out["backbone_out"][key],
+                                teacher_out["backbone_out"][key])
+                else:
+                    loss_dict["backbone_loss_{}".format(
+                        idx)] = self.backbone_loss_func(
+                            student_out["backbone_out"],
+                            teacher_out["backbone_out"])
 
             # commonly used in DML loss, cause they are learned from scratch
             if not self.freeze_teacher:
                 for row in range(len(teacher_list_out)):
                     for col in range(row + 1, len(teacher_list_out)):
-                        loss_dict["backbone_in_teacher_loss_{}_{}".format(
-                            row, col)] = self.backbone_loss_func(
-                                teacher_list_out[row]["backbone_out"],
-                                teacher_list_out[col]["backbone_out"])
+                        if isinstance(student_out["backbone_out"], dict):
+                            for key in student_out["backbone_out"]:
+                                loss_dict["backbone_{}_loss_{}".format(
+                                    key, idx
+                                )] = self.backbone_loss_func(
+                                    teacher_list_out[row]["backbone_out"][key],
+                                    teacher_list_out[col]["backbone_out"][key])
+                        else:
+                            loss_dict["backbone_in_teacher_loss_{}_{}".format(
+                                row, col)] = self.backbone_loss_func(
+                                    teacher_list_out[row]["backbone_out"],
+                                    teacher_list_out[col]["backbone_out"])
 
         if self.use_neck_loss:
             for idx, teacher_out in enumerate(teacher_list_out):

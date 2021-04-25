@@ -75,6 +75,8 @@ class BaseModel(nn.Layer):
             out_dict["transform_out"] = x
         x = self.backbone(x)
         out_dict["backbone_out"] = x
+        if isinstance(x, dict):
+            x = x["final_output"]
         if self.use_neck:
             x = self.neck(x)
             out_dict["neck_out"] = x

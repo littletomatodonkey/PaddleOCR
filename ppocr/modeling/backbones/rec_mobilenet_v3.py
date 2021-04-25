@@ -30,6 +30,7 @@ class MobileNetV3(nn.Layer):
                  prefix_name="",
                  embedding_size=None,
                  pool_kernel_size=2,
+                 return_feat_dict=False,
                  **kwargs):
         super(MobileNetV3, self).__init__()
         if small_stride is None:
@@ -101,6 +102,9 @@ class MobileNetV3(nn.Layer):
         else:
             raise NotImplementedError("mode[" + model_name +
                                       "_model] is not implemented!")
+
+        self.cfg = cfg
+        self.return_feat_dict = return_feat_dict
 
         supported_scale = [0.35, 0.5, 0.75, 1.0, 1.25]
         assert scale in supported_scale, \
@@ -174,9 +178,19 @@ class MobileNetV3(nn.Layer):
 
     def forward(self, x):
         x = self.conv1(x)
-        x = self.blocks(x)
+
+        out = {}
+        for idx, block in enumerate(self.blocks):
+            x = block(x)
+            stride = self.cfg[idx][-1]
+            stride = stride[0] if isinstance(stride, (
+                list,
+                tuple, )) else stride
+            if stride == 2:
+                out["backbone_st{}".format(idx)] = x
         x = self.conv2(x)
         if self.embedding_size is not None:
             x = self.embedding_conv(x)
         x = self.pool(x)
-        return x
+        out["final_output"] = x
+        return out if self.return_feat_dict else x
