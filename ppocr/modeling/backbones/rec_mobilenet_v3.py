@@ -180,8 +180,8 @@ class MobileNetV3(nn.Layer):
         x = self.conv1(x)
 
         out = {}
-        for idx, block in enumerate(self.blocks):
-            x = block(x)
+        for idx in range(len(self.blocks)):
+            x = self.blocks[idx](x)
             stride = self.cfg[idx][-1]
             stride = stride[0] if isinstance(stride, (
                 list,
