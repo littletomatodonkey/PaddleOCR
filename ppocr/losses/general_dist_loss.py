@@ -27,6 +27,7 @@ from .dml import DML
 from .distillation_loss import InClassLoss
 from .distillation_loss import jsdiv_me
 from .fsp import FSP
+from .knowledge_review import KnowLedgeReviewLoss
 
 
 def dml_me_loss(out1, out2):
@@ -146,6 +147,13 @@ class GeneralDistLoss(nn.Layer):
             use_fsp_loss_backbone_neck=False,
             fsp_loss_backbone_neck_ratio=1.0,
 
+            # use knowledge review method
+            use_knowledge_review=False,
+            # mv3 small
+            kr_student_ch_list=[16, 24, 48, 288],
+            kr_teacher_ch_list=[16, 24, 48, 288],
+            kr_loss_ratio=1.0,
+
             # whether to use teacher loss
             # if freeze_teacher is False, we should calc teacher loss between themselves
             freeze_teacher=True,
@@ -176,6 +184,8 @@ class GeneralDistLoss(nn.Layer):
         self.use_partial_data_for_other_loss = use_partial_data_for_other_loss
         self.inclass_num_sections = inclass_num_sections
 
+        self.use_knowledge_review = use_knowledge_review
+
         if self.use_dist_loss:
             self.distillation_loss_func = BaseLossClass(
                 loss_type=dist_loss_type, ratio=dist_loss_ratio)
@@ -201,6 +211,12 @@ class GeneralDistLoss(nn.Layer):
         if self.use_fsp_loss_backbone_neck:
             self.fsp_loss_backbone_neck_func = FSP(
                 loss_ratio=fsp_loss_backbone_neck_ratio)
+
+        if self.use_knowledge_review:
+            self.knowledge_review_loss_func = KnowLedgeReviewLoss(
+                student_ch_num=kr_student_ch_list,
+                teacher_ch_num=kr_teacher_ch_list,
+                loss_ratio=kr_loss_ratio)
 
     def calc_ignore_flag(self, batch):
         '''
@@ -326,6 +342,14 @@ class GeneralDistLoss(nn.Layer):
                                 row, col)] = self.backbone_loss_func(
                                     teacher_list_out[row]["backbone_out"],
                                     teacher_list_out[col]["backbone_out"])
+
+        if self.use_knowledge_review:
+            assert isinstance(student_out["backbone_out"], dict)
+            assert len(teacher_list_out) == 1, "just support one as now!!!"
+            for idx, teacher_out in enumerate(teacher_list_out):
+                loss_out = self.knowledge_review_loss_func(
+                    student_out["backbone_out"], teacher_out["backbone_out"])
+                loss_dict.update(loss_out)
 
         if self.use_neck_loss:
             for idx, teacher_out in enumerate(teacher_list_out):
