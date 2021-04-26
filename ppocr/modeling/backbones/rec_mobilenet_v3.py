@@ -12,7 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import paddle
 from paddle import nn
+import paddle.nn.functional as F
 
 from ppocr.modeling.backbones.det_mobilenet_v3 import ResidualUnit, ConvBNLayer, make_divisible
 
@@ -31,6 +33,7 @@ class MobileNetV3(nn.Layer):
                  embedding_size=None,
                  pool_kernel_size=2,
                  return_feat_dict=False,
+                 add_pre_act_layer=False,
                  **kwargs):
         super(MobileNetV3, self).__init__()
         if small_stride is None:
@@ -105,6 +108,7 @@ class MobileNetV3(nn.Layer):
 
         self.cfg = cfg
         self.return_feat_dict = return_feat_dict
+        self.add_pre_act_layer = add_pre_act_layer
 
         supported_scale = [0.35, 0.5, 0.75, 1.0, 1.25]
         assert scale in supported_scale, \
@@ -148,9 +152,7 @@ class MobileNetV3(nn.Layer):
             stride=1,
             padding=0,
             groups=1,
-            if_act=embedding_size is
-            None,  # when embedding_size is None, act needs to be done here, otherwise done in embedding
-            act=last_act,
+            if_act=False,
             name=prefix_name + 'conv_last')
 
         self.embedding_size = embedding_size
@@ -162,10 +164,11 @@ class MobileNetV3(nn.Layer):
                 stride=1,
                 padding=1,
                 groups=1,
-                if_act=True,
-                act=last_act,
+                if_act=False,
                 name=prefix_name + 'conv_last_embedding')
             self.out_channels = embedding_size
+
+        self.last_act = last_act
 
         if pool_kernel_size == 2:
             self.pool = nn.MaxPool2D(kernel_size=2, stride=2, padding=0)
@@ -191,6 +194,18 @@ class MobileNetV3(nn.Layer):
         x = self.conv2(x)
         if self.embedding_size is not None:
             x = self.embedding_conv(x)
+
+        if self.add_pre_act_layer:
+            out["final_pre_act"] = x
+
+        if self.last_act == "hard_swish":
+            if paddle.__version__ == "2.0.0-rc1":
+                x = F.activation.hard_swish(x)
+            else:
+                x = F.activation.hardswish(x)
+        else:
+            assert False, "not impl as now!!!"
+
         x = self.pool(x)
         out["final_output"] = x
         return out if self.return_feat_dict else x
