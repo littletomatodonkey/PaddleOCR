@@ -83,7 +83,7 @@ class EmbeddingL2Loss(nn.Layer):
         for idx in range(len(in_ch_list)):
             self.conv_list.append(
                 nn.Conv2D(
-                    in_channels=self.out_ch_list[idx],
+                    in_channels=self.in_ch_list[idx],
                     out_channels=self.out_ch_list[idx],
                     kernel_size=1,
                     stride=1,
