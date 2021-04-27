@@ -73,14 +73,53 @@ def dml_sigmoid_loss(out1, out2):
     return loss
 
 
+class EmbeddingL2Loss(nn.Layer):
+    def __init__(self, in_ch_list=[], out_ch_list=[]):
+        super(EmbeddingL2Loss, self).__init__()
+        self.in_ch_list = in_ch_list
+        self.out_ch_list = out_ch_list
+
+        self.conv_list = []
+        for idx in range(len(in_ch_list)):
+            self.conv_list.append(
+                nn.Conv2D(
+                    in_channels=self.out_ch_list[idx],
+                    out_channels=self.out_ch_list[idx],
+                    kernel_size=1,
+                    stride=1,
+                    padding=0))
+
+        self.conv_list = nn.Sequential(*self.conv_list)
+
+    def forward(self, x1, x2):
+        '''
+        x1: dict
+        x2: dict
+        '''
+        loss_dict = {}
+        x1 = list(x1.values())
+        x2 = list(x2.values())
+
+        for idx in range(len(x1)):
+            trans_x1 = self.conv_list[idx](x1[idx])
+            loss_dict["embedding_loss_{}".format(idx)] = F.mse_loss(trans_x1,
+                                                                    x2[idx])
+
+        return loss_dict
+
+
 class BaseLossClass(nn.Layer):
-    def __init__(self, loss_type="l2loss", mode="mean", ratio=1.0):
+    def __init__(self, loss_type="l2loss", mode="mean", ratio=1.0, **args):
         super(BaseLossClass, self).__init__()
         self.loss_type = loss_type
         self.mode = mode
         self.ratio = ratio
         if self.loss_type == "dmlloss":
             self.dml_loss_func = DML(1.0)
+        elif self.loss_type == "embedding_l2loss":
+            self.backbone_loss_func = EmbeddingL2Loss(
+                in_ch_list=args["student_backbone_ch_list"],
+                out_ch_list=args["teacher_backbone_ch_list"])
 
     def __call__(self, x, y):
         '''
@@ -108,7 +147,17 @@ class BaseLossClass(nn.Layer):
             loss = dml_me_loss(x, y)
         elif self.loss_type == "dml_sigmoid_loss":
             loss = dml_sigmoid_loss(x, y)
-        loss = loss * self.ratio
+        elif self.loss_type == "embedding_l2loss":
+            loss = self.backbone_loss_func(x, y)
+        else:
+            assert False, "self.loss_type format({}) wrong!".format(
+                self.loss_type)
+
+        if isinstance(loss, dict):
+            for key in loss:
+                loss[key] = loss[key] * self.ratio
+        else:
+            loss = loss * self.ratio
         return loss
 
 
@@ -137,6 +186,9 @@ class GeneralDistLoss(nn.Layer):
             use_backbone_loss=False,
             backbone_loss_type="l2loss",
             backbone_loss_ratio=1.0,
+            # used when backbone out is a dict
+            student_backbone_ch_list=[16, 24, 48, 288],
+            teacher_backbone_ch_list=[16, 24, 48, 288],
 
             # whether to use neck loss
             use_neck_loss=False,
@@ -183,6 +235,7 @@ class GeneralDistLoss(nn.Layer):
         self.use_fsp_loss_backbone_neck = use_fsp_loss_backbone_neck
         self.use_partial_data_for_other_loss = use_partial_data_for_other_loss
         self.inclass_num_sections = inclass_num_sections
+        self.backbone_loss_type = backbone_loss_type
 
         self.use_knowledge_review = use_knowledge_review
 
@@ -202,7 +255,10 @@ class GeneralDistLoss(nn.Layer):
 
         if self.use_backbone_loss:
             self.backbone_loss_func = BaseLossClass(
-                loss_type=backbone_loss_type, ratio=backbone_loss_ratio)
+                loss_type=backbone_loss_type,
+                ratio=backbone_loss_ratio,
+                student_backbone_ch_list=student_backbone_ch_list,
+                teacher_backbone_ch_list=teacher_backbone_ch_list)
 
         if self.use_neck_loss:
             self.neck_loss_func = BaseLossClass(
@@ -315,11 +371,20 @@ class GeneralDistLoss(nn.Layer):
         if self.use_backbone_loss:
             for idx, teacher_out in enumerate(teacher_list_out):
                 if isinstance(student_out["backbone_out"], dict):
-                    for key in student_out["backbone_out"]:
-                        loss_dict["backbone_{}_loss_{}".format(
-                            key, idx)] = self.backbone_loss_func(
-                                student_out["backbone_out"][key],
-                                teacher_out["backbone_out"][key])
+                    if self.backbone_loss_type in ["l2loss", ]:
+                        for key in student_out["backbone_out"]:
+                            loss_dict["backbone_{}_loss_{}".format(
+                                key, idx)] = self.backbone_loss_func(
+                                    student_out["backbone_out"][key],
+                                    teacher_out["backbone_out"][key])
+                    else:
+                        # use dict as input for embedding tranform
+                        backbone_loss_dict = self.backbone_loss_func(
+                            student_out["backbone_out"],
+                            teacher_out["backbone_out"])
+                        for key in backbone_loss_dict:
+                            loss_dict["backbone_{}".format(
+                                key)] = backbone_loss_dict[key]
                 else:
                     loss_dict["backbone_loss_{}".format(
                         idx)] = self.backbone_loss_func(
