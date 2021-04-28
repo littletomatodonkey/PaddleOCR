@@ -94,6 +94,7 @@ class MobileNetV3(nn.Layer):
                 [3, 88, 24, False, 'relu', 1],
                 [3, 88, 24, False, 'relu', 1],  # added deeper
                 [3, 88, 24, False, 'relu', 1],  # added deeper
+                [3, 88, 24, False, 'relu', 1],  # added deeper
                 [5, 96, 40, True, 'hard_swish', (small_stride[2], 1)],
                 [5, 240, 40, True, 'hard_swish', 1],
                 [5, 240, 40, True, 'hard_swish', 1],
@@ -101,9 +102,11 @@ class MobileNetV3(nn.Layer):
                 [5, 144, 48, True, 'hard_swish', 1],
                 [5, 144, 48, True, 'hard_swish', 1],  # added deeper
                 [5, 144, 48, True, 'hard_swish', 1],  # added deeper
+                [5, 144, 48, True, 'hard_swish', 1],  # added deeper
                 [5, 288, 96, True, 'hard_swish', (small_stride[3], 1)],
                 [5, 576, 96, True, 'hard_swish', 1],
                 [5, 576, 96, True, 'hard_swish', 1],
+                [5, 576, 96, True, 'hard_swish', 1],  # added deeper
                 [5, 576, 96, True, 'hard_swish', 1],  # added deeper
             ]
             cls_ch_squeeze = 576
