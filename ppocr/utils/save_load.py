@@ -43,6 +43,8 @@ def _mkdir_if_not_exist(path, logger):
 
 
 def load_dygraph_pretrain(model, logger, path=None, load_static_weights=False):
+    if path is None:
+        return
     if not (os.path.isdir(path) or os.path.exists(path + '.pdparams')):
         raise ValueError("Model pretrain path {} does not "
                          "exists.".format(path))
@@ -69,6 +71,8 @@ def load_dygraph_pretrain(model, logger, path=None, load_static_weights=False):
             else:
                 param_state_dict[key] = model_dict[key]
         model.set_state_dict(param_state_dict)
+        logger.info("Finish initing model from {}".format(pretrained_model[
+            idx]))
         return
 
     param_state_dict = paddle.load(path + '.pdparams')
@@ -98,23 +102,17 @@ def load_distillation_model(model, pretrained_model, load_static_weights,
                 logger,
                 path=pretrained_model[idx],
                 load_static_weights=load_static_weights[idx])
-            logger.info("Finish initing teacher model from {}".format(
-                pretrained_model[idx]))
     else:
         load_dygraph_pretrain(
             teacher,
             logger,
             path=pretrained_model[0],
             load_static_weights=load_static_weights[0])
-        logger.info("Finish initing teacher model from {}".format(
-            pretrained_model[0]))
     load_dygraph_pretrain(
         student,
         logger,
         path=pretrained_model[-1],
         load_static_weights=load_static_weights[-1])
-    logger.info("Finish initing student model from {}".format(pretrained_model[
-        -1]))
 
 
 def init_model(config, model, logger, optimizer=None, lr_scheduler=None):
