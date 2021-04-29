@@ -28,6 +28,7 @@ from .distillation_loss import InClassLoss
 from .distillation_loss import jsdiv_me
 from .fsp import FSP
 from .knowledge_review import KnowLedgeReviewLoss
+from .rkd_loss import RkdDistance, RKdAngle, RkdLoss
 
 
 def dml_me_loss(out1, out2):
@@ -120,6 +121,8 @@ class BaseLossClass(nn.Layer):
             self.backbone_loss_func = EmbeddingL2Loss(
                 in_ch_list=args["student_backbone_ch_list"],
                 out_ch_list=args["teacher_backbone_ch_list"])
+        elif self.loss_type == "rkd_loss":
+            self.rkd_loss_func = RkdLoss()
 
     def __call__(self, x, y):
         '''
@@ -149,6 +152,8 @@ class BaseLossClass(nn.Layer):
             loss = dml_sigmoid_loss(x, y)
         elif self.loss_type == "embedding_l2loss":
             loss = self.backbone_loss_func(x, y)
+        elif self.loss_type == "rkd_loss":
+            loss = self.rkd_loss_func(x, y)
         else:
             assert False, "self.loss_type format({}) wrong!".format(
                 self.loss_type)
