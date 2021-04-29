@@ -418,6 +418,9 @@ class TDecodeCTCLoss(nn.Layer):
         preds_prob = paddle.where(
             paddle.isnan(preds_prob), paddle.ones_like(preds_prob), preds_prob)
 
+        # we found that the results is very bad if using predicts decoded by the teacher
+        # however, the score predicted by the teacher can be used for ohem
+        # which can cause 0.5% acc improvement
         teacher_batch = batch
         #         teacher_batch[1] = decoded_preds_label
         #         teacher_batch[2] = predicts_len_list
