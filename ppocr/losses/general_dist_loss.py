@@ -74,6 +74,31 @@ def dml_sigmoid_loss(out1, out2):
     return loss
 
 
+def logits_relation_loss(out1, out2):
+    '''
+    cost too much gpu memory, so we donot use any more.
+    out1: student head out
+    out2: teacher head out
+    L2 loss is used here
+    '''
+    if isinstance(out1, dict):
+        out1 = out1["logits"]
+    if isinstance(out2, dict):
+        out2 = out2["logits"]
+
+    # out1: bs x Ts x C
+    # out2: bs x Ts x C
+    diff_out1 = out1.unsqueeze(axis=[1]) - out1.unsqueeze(axis=[2])
+    diff_out1 = diff_out1.square().sum(axis=[-1])
+
+    diff_out2 = out2.unsqueeze(axis=[1]) - out2.unsqueeze(axis=[2])
+    diff_out2 = diff_out2.square().sum(axis=[-1])
+
+    loss = F.mse_loss(diff_out1, diff_out2)
+
+    return loss
+
+
 class EmbeddingL2Loss(nn.Layer):
     def __init__(self, in_ch_list=[], out_ch_list=[]):
         super(EmbeddingL2Loss, self).__init__()
@@ -109,6 +134,32 @@ class EmbeddingL2Loss(nn.Layer):
         return loss_dict
 
 
+class HeadRelationLoss(nn.Layer):
+    def __init__(self, relation_loss_type="cos_sim"):
+        super().__init__()
+        self.relation_loss_type = relation_loss_type
+
+    def forward(self, x1, x2):
+        '''
+        x1: dict
+        x2: dict
+        '''
+        if isinstance(x1, dict):
+            x1 = x1["logits"]
+        if isinstance(x2, dict):
+            x2 = x2["logits"]
+
+        if self.relation_loss_type == "cos_sim":
+            diff_x1 = F.cosine_similarity(x1[:-1], x1[1:], axis=-1)
+            diff_x2 = F.cosine_similarity(x2[:-1], x2[1:], axis=-1)
+        elif self.relation_loss_type == "l2loss":
+            diff_x1 = F.mse_loss(x1[:-1], x1[1:], reduction="none")
+            diff_x2 = F.mes_loss(x2[:-1], x2[1:], reduction="none")
+
+        loss = F.mse_loss(diff_x1, diff_x2)
+        return loss
+
+
 class BaseLossClass(nn.Layer):
     def __init__(self, loss_type="l2loss", mode="mean", ratio=1.0, **args):
         super(BaseLossClass, self).__init__()
@@ -123,6 +174,9 @@ class BaseLossClass(nn.Layer):
                 out_ch_list=args["teacher_backbone_ch_list"])
         elif self.loss_type == "rkd_loss":
             self.rkd_loss_func = RkdLoss()
+        elif self.loss_type == "head_relation_loss":
+            self.head_relation_loss_func = HeadRelationLoss(
+                relation_loss_type=args["relation_loss_type"])
 
     def __call__(self, x, y):
         '''
@@ -154,6 +208,10 @@ class BaseLossClass(nn.Layer):
             loss = self.backbone_loss_func(x, y)
         elif self.loss_type == "rkd_loss":
             loss = self.rkd_loss_func(x, y)
+        elif self.loss_type == "logits_relation_loss":
+            loss = logits_relation_loss(x, y)
+        elif self.loss_type == "head_relation_loss":
+            loss = self.head_relation_loss_func(x, y)
         else:
             assert False, "self.loss_type format({}) wrong!".format(
                 self.loss_type)
@@ -204,6 +262,14 @@ class GeneralDistLoss(nn.Layer):
             use_fsp_loss_backbone_neck=False,
             fsp_loss_backbone_neck_ratio=1.0,
 
+            # use logits releation loss
+            use_logits_relation_loss=False,
+            logits_relation_loss_type="logits_relation_loss",
+            logits_relation_loss_ratio=1.0,
+            use_head_relation_loss=False,
+            relation_loss_type="cos_sim",
+            relation_loss_ratio=1.0,
+
             # use knowledge review method
             use_knowledge_review=False,
             # mv3 small
@@ -241,6 +307,8 @@ class GeneralDistLoss(nn.Layer):
         self.use_partial_data_for_other_loss = use_partial_data_for_other_loss
         self.inclass_num_sections = inclass_num_sections
         self.backbone_loss_type = backbone_loss_type
+        self.use_logits_relation_loss = use_logits_relation_loss
+        self.use_head_relation_loss = use_head_relation_loss
 
         self.use_knowledge_review = use_knowledge_review
 
@@ -278,6 +346,17 @@ class GeneralDistLoss(nn.Layer):
                 student_ch_num=kr_student_ch_list,
                 teacher_ch_num=kr_teacher_ch_list,
                 loss_ratio=kr_loss_ratio)
+
+        if self.use_logits_relation_loss:
+            self.logits_relation_loss_func = BaseLossClass(
+                loss_type=logits_relation_loss_type,
+                ratio=logits_relation_loss_ratio)
+
+        if self.use_head_relation_loss:
+            self.head_relation_loss_func = BaseLossClass(
+                loss_type="head_relation_loss",
+                ratio=relation_loss_ratio,
+                relation_loss_type=relation_loss_type)
 
     def calc_ignore_flag(self, batch):
         '''
@@ -420,6 +499,18 @@ class GeneralDistLoss(nn.Layer):
                 loss_out = self.knowledge_review_loss_func(
                     student_out["backbone_out"], teacher_out["backbone_out"])
                 loss_dict.update(loss_out)
+
+        if self.use_logits_relation_loss:
+            for idx, teacher_out, in enumerate(teacher_list_out):
+                loss_dict["logits_relation_loss_{}".format(
+                    idx)] = self.logits_relation_loss_func(
+                        student_out["head_out"], teacher_out["head_out"])
+
+        if self.use_head_relation_loss:
+            for idx, teacher_out, in enumerate(teacher_list_out):
+                loss_dict["head_relation_loss_{}".format(
+                    idx)] = self.head_relation_loss_func(
+                        student_out["head_out"], teacher_out["head_out"])
 
         if self.use_neck_loss:
             for idx, teacher_out in enumerate(teacher_list_out):
