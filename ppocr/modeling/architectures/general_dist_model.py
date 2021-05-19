@@ -77,3 +77,9 @@ class GeneralDistModel(nn.Layer):
             "student_out": student_out,
         }
         return result
+
+    def eval(self):
+        self.training = False
+        for layer in self.sublayers():
+            layer.training = False
+            layer.eval()
